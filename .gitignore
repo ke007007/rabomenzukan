@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# dotenv
+.env
+.dev.vars
+
+# PM2
+.pm2/
+logs/
+*.log
+
+# Wrangler local state
+.wrangler/
+
+# OS
+.DS_Store
