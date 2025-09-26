@@ -483,7 +483,7 @@
         img,
         h('div', {},
           h('div', { class: 'text-lg font-bold' }, m.name),
-          h('div', { class: 'text-sm text-gray-600' }, m.occupation),
+          h('div', { class: 'text-sm text-gray-600' }, `呼ばれたい名前: ${m.preferredName}`),
         ),
       ),
       h('div', { class: 'space-y-2' },
@@ -886,25 +886,6 @@
     const ro = new ResizeObserver(() => scheduleDraw())
     ro.observe(svgWrap)
 
-    const exportBtn = h(
-      'button',
-      { class: 'bg-gray-200 hover:bg-gray-300 px-3 py-2 rounded-lg mt-3' },
-      'PNGとして保存',
-    )
-    exportBtn.addEventListener('click', async () => {
-      try {
-        const node = svgWrap
-        const { toPng } = await import('https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/+esm')
-        const dataUrl = await toPng(node)
-        const a = document.createElement('a')
-        a.href = dataUrl
-        a.download = 'correlation.png'
-        a.click()
-      } catch (e) {
-        console.error('[Correlation] export failed:', e)
-      }
-    })
-
     async function draw() {
       let d3
       try {
@@ -1064,7 +1045,7 @@
         .append('image')
         .attr(
           'href',
-          (d) => d.member.imageUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><circle cx="20" cy="20" r="20" fill="%23e5e7eb"/><text x="50%" y="52%" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="%236b7280">人</text></svg>',
+          (d) => d.member.imageUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="%23e5e7eb"/><path d="M20 22c4.418 0 8-3.582 8-8s-3.582-8-8-8-8 3.582-8 8 3.582 8 8 8zm0 4c-6.627 0-12 3.134-12 7v3h24v-3c0-3.866-5.373-7-12-7z" fill="%236b7280"/></svg>',
         )
         .attr('x', -20)
         .attr('y', -20)
@@ -1072,6 +1053,14 @@
         .attr('height', 40)
         .attr('clip-path', 'url(#avatar-clip)')
         .append('title')
+        .text((d) => d.member.name)
+
+      // name label above icon
+      node.append('text')
+        .attr('y', -30)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 10)
+        .attr('fill', '#374151')
         .text((d) => d.member.name)
 
       simulation.on('tick', () => {
@@ -1114,7 +1103,6 @@
       h('h1', { class: 'text-2xl font-bold text-gray-900' }, 'ラボメン相関図（ネットワーク）'),
       panel,
       svgWrap,
-      exportBtn,
     )
 
     // Draw after layout
@@ -1128,24 +1116,6 @@
     const svgWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 relative ' + (debugOn ? 'debug-svg-wrap' : 'overflow-hidden') })
     const svg = h('svg', { width: '100%', height: 480 })
     svgWrap.appendChild(svg)
-
-    const exportBtn = h(
-      'button',
-      { class: 'bg-gray-200 hover:bg-gray-300 px-3 py-2 rounded-lg mt-3' },
-      'PNGとして保存',
-    )
-    exportBtn.addEventListener('click', async () => {
-      try {
-        const { toPng } = await import('https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/+esm')
-        const dataUrl = await toPng(svgWrap)
-        const a = document.createElement('a')
-        a.href = dataUrl
-        a.download = 'core-values.png'
-        a.click()
-      } catch (e) {
-        console.error('[CoreValues] export failed:', e)
-      }
-    })
 
     let rafId = 0
     const scheduleDraw = () => {
@@ -1287,7 +1257,6 @@
     const wrap = container(
       h('h1', { class: 'text-2xl font-bold text-gray-900' }, '大切にしていること（ワードクラウド）'),
       svgWrap,
-      exportBtn,
     )
 
     // draw after layout
