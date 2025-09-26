@@ -350,6 +350,7 @@
       h('div', { class: 'space-y-2' },
         h('div', {}, tagPreview(m.interestTags, 'interest')),
         h('div', {}, tagPreview(m.involvementTags, 'involvement')),
+        h('div', { class: 'text-xs text-gray-600' }, '普段やってること: ' + snippet(m.occupation)),
         h('div', { class: 'text-xs text-gray-600' }, 'どうしてラボへ？: ' + snippet(m.whyLab)),
         h('div', { class: 'text-xs text-gray-600' }, 'やってみたいこと: ' + snippet(m.whatToDo)),
       ),
@@ -702,7 +703,7 @@
     )
   }
 
-  // Correlation page (matrix view between selected tags)
+  // Correlation page (network graph with D3 force, filtered by selected tags)
   function CorrelationPage() {
     const allTags = Array.from(new Set(state.members.flatMap((m) => [...m.interestTags, ...m.involvementTags])))
     const selected = new Set()
@@ -728,84 +729,150 @@
       ),
     )
 
-    const tableWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 overflow-auto' })
+    const svgWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 overflow-hidden' })
+    const svg = h('svg', { width: '100%', height: 480 })
+    svgWrap.appendChild(svg)
 
-    function computeMatrix(tags) {
-      const arr = Array.from(tags)
-      const matrix = Array.from({ length: arr.length }, () => Array(arr.length).fill(0))
+    const exportBtn = h(
+      'button',
+      { class: 'bg-gray-200 hover:bg-gray-300 px-3 py-2 rounded-lg mt-3' },
+      'PNGとして保存',
+    )
+    exportBtn.addEventListener('click', async () => {
+      const node = svgWrap
+      const { toPng } = await import('https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/+esm')
+      const dataUrl = await toPng(node)
+      const a = document.createElement('a')
+      a.href = dataUrl
+      a.download = 'correlation.png'
+      a.click()
+    })
+
+    async function draw() {
+      const d3 = await import('https://cdn.jsdelivr.net/npm/d3@7/+esm')
       const members = state.members
-      function hasTag(m, t) {
-        return m.interestTags.includes(t) || m.involvementTags.includes(t)
+      const nodes = members.map((m) => ({ id: m.id, member: m }))
+
+      function commonTags(a, b) {
+        const setA = new Set([...a.interestTags, ...a.involvementTags])
+        const setB = new Set([...b.interestTags, ...b.involvementTags])
+        let common = [...setA].filter((x) => setB.has(x))
+        if (selected.size) common = common.filter((t) => selected.has(t))
+        return common
       }
-      for (let i = 0; i < arr.length; i++) {
-        for (let j = 0; j < arr.length; j++) {
-          if (i === j) continue
-          let count = 0
-          for (const m of members) {
-            if (hasTag(m, arr[i]) && hasTag(m, arr[j])) count++
-          }
-          matrix[i][j] = count
+
+      const links = []
+      for (let i = 0; i < members.length; i++) {
+        for (let j = i + 1; j < members.length; j++) {
+          const common = commonTags(members[i], members[j])
+          if (common.length) links.push({ source: members[i].id, target: members[j].id, tags: common })
         }
       }
-      return { arr, matrix }
-    }
 
-    function renderMatrix() {
-      tableWrap.innerHTML = ''
-      const tags = selected.size ? selected : new Set(allTags)
-      const { arr, matrix } = computeMatrix(tags)
+      svg.innerHTML = ''
+      const width = svgWrap.clientWidth - 16
+      const height = 440
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
 
-      const table = h('table', { class: 'min-w-full text-xs' })
-      const thead = h('thead', {},
-        h('tr', {},
-          h('th', { class: 'p-2 border sticky left-0 bg-white z-10' }, ''),
-          ...arr.map((t) => h('th', { class: 'p-2 border text-gray-700' }, t)),
-        ),
-      )
-      const tbody = h('tbody', {},
-        ...arr.map((ri, i) =>
-          h('tr', {},
-            h('th', { class: 'p-2 border text-gray-700 sticky left-0 bg-white z-10' }, ri),
-            ...arr.map((cj, j) =>
-              h('td', {
-                class: 'p-2 border text-center',
-                style: heatStyle(matrix[i][j]),
-                title: `${ri} × ${cj}: ${matrix[i][j]}`,
-              }, String(matrix[i][j]))
-            )
-          )
+      const colorScale = d3.scaleSequential(d3.interpolateCividis).domain([1, 8])
+      const linkWidth = d3.scaleLinear().domain([1, 8]).range([1, 6])
+
+      const simulation = d3
+        .forceSimulation(nodes)
+        .force('link', d3.forceLink(links).id((d) => d.id).distance(120))
+        .force('charge', d3.forceManyBody().strength(-200))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+
+      const g = d3.select(svg).append('g')
+
+      const zoom = d3.zoom().on('zoom', (event) => {
+        g.attr('transform', event.transform)
+      })
+      d3.select(svg).call(zoom)
+
+      const tooltip = h('div', { class: 'absolute text-xs bg-white shadow rounded px-2 py-1 border hidden' })
+      svgWrap.style.position = 'relative'
+      svgWrap.appendChild(tooltip)
+
+      const link = g
+        .selectAll('line')
+        .data(links)
+        .enter()
+        .append('line')
+        .attr('stroke', (d) => colorScale(Math.min(8, d.tags.length)))
+        .attr('stroke-width', (d) => linkWidth(Math.min(8, d.tags.length)))
+        .on('mousemove', function (event, d) {
+          tooltip.textContent = d.tags.join(', ')
+          tooltip.style.left = event.offsetX + 10 + 'px'
+          tooltip.style.top = event.offsetY + 10 + 'px'
+          tooltip.classList.remove('hidden')
+        })
+        .on('mouseout', () => tooltip.classList.add('hidden'))
+
+      const node = g
+        .selectAll('g.node')
+        .data(nodes)
+        .enter()
+        .append('g')
+        .attr('class', 'node')
+        .call(
+          d3
+            .drag()
+            .on('start', (event, d) => {
+              if (!event.active) simulation.alphaTarget(0.3).restart()
+              d.fx = d.x
+              d.fy = d.y
+            })
+            .on('drag', (event, d) => {
+              d.fx = event.x
+              d.fy = event.y
+            })
+            .on('end', (event, d) => {
+              if (!event.active) simulation.alphaTarget(0)
+              d.fx = null
+              d.fy = null
+            }),
         )
-      )
-      table.append(thead, tbody)
-      tableWrap.appendChild(table)
-    }
 
-    function heatStyle(value) {
-      // Cividis-like simple scale (light to dark)
-      const max = Math.max(1, ...state.members.map((m) => m.interestTags.length + m.involvementTags.length))
-      const t = Math.min(1, value / max)
-      const hue = 230 - 130 * t // rough mapping
-      const light = 95 - 55 * t
-      return `background-color: hsl(${hue} 60% ${light}%); color: ${t > 0.6 ? '#fff' : '#111'};`
-    }
+      node
+        .append('circle')
+        .attr('r', 22)
+        .attr('fill', '#e5e7eb')
 
-    function draw() {
-      renderMatrix()
+      node
+        .append('image')
+        .attr('href', (d) => d.member.imageUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><rect width="100%" height="100%" fill="%23e5e7eb"/><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" font-size="12" fill="%236b7280">No Img</text></svg>')
+        .attr('x', -20)
+        .attr('y', -20)
+        .attr('width', 40)
+        .attr('height', 40)
+        .attr('clip-path', 'circle(20px at 20px 20px)')
+
+      simulation.on('tick', () => {
+        link
+          .attr('x1', (d) => d.source.x)
+          .attr('y1', (d) => d.source.y)
+          .attr('x2', (d) => d.target.x)
+          .attr('y2', (d) => d.target.y)
+
+        node.attr('transform', (d) => `translate(${d.x},${d.y})`)
+      })
     }
 
     const wrap = container(
-      h('h1', { class: 'text-2xl font-bold text-gray-900' }, 'ラボメン相関図（タグ間マトリクス）'),
+      h('h1', { class: 'text-2xl font-bold text-gray-900' }, 'ラボメン相関図（ネットワーク）'),
       panel,
-      tableWrap,
+      svgWrap,
+      exportBtn,
     )
 
     draw()
     return wrap
   }
 
-  // Core values word cloud (frequency -> font size)
+  // Core values word cloud (force layout, zoom/drag, size by frequency)
   function CoreValuesPage() {
-    const svgWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 overflow-hidden' })
+    const svgWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 overflow-hidden relative' })
     const svg = h('svg', { width: '100%', height: 480 })
     svgWrap.appendChild(svg)
 
@@ -828,47 +895,20 @@
         return
       }
 
-      const size = d3.scaleSqrt().domain([1, Math.max(...items.map((d) => d.count))]).range([14, 64])
+      const size = d3.scaleSqrt().domain([1, Math.max(...items.map((d) => d.count))]).range([12, 60])
       const color = d3.scaleOrdinal(Tableau10)
 
-      // layout: place words in spiral-ish rings to avoid overlap roughly
-      const nodes = []
-      const centerX = width / 2
-      const centerY = height / 2
-      let angle = 0
-      let radius = 10
-      const step = 12
-      for (const it of items.sort((a, b) => b.count - a.count)) {
-        angle += 0.6
-        radius += step * 0.4
-        nodes.push({ ...it, x: centerX + radius * Math.cos(angle), y: centerY + radius * Math.sin(angle) })
-      }
+      // D3 force to avoid overlap
+      const nodes = items.map((d) => ({ ...d, x: Math.random() * width, y: Math.random() * height }))
+      const sim = d3
+        .forceSimulation(nodes)
+        .force('charge', d3.forceManyBody().strength(0))
+        .force('collide', d3.forceCollide().radius((d) => size(d.count) * 0.7))
+        .force('x', d3.forceX(width / 2).strength(0.03))
+        .force('y', d3.forceY(height / 2).strength(0.03))
+        .stop()
 
-      // refine with simple collision resolve
-      function collide() {
-        for (let i = 0; i < nodes.length; i++) {
-          for (let j = i + 1; j < nodes.length; j++) {
-            const a = nodes[i]
-            const b = nodes[j]
-            const ra = size(a.count)
-            const rb = size(b.count)
-            const dx = b.x - a.x
-            const dy = b.y - a.y
-            const dist = Math.hypot(dx, dy) || 1
-            const min = (ra + rb) * 0.6
-            if (dist < min) {
-              const off = (min - dist) / 2
-              const ux = dx / dist
-              const uy = dy / dist
-              a.x -= ux * off
-              a.y -= uy * off
-              b.x += ux * off
-              b.y += uy * off
-            }
-          }
-        }
-      }
-      for (let k = 0; k < 20; k++) collide()
+      for (let i = 0; i < 240; i++) sim.tick()
 
       const g = d3.select(svg).append('g')
       const zoom = d3.zoom().on('zoom', (event) => g.attr('transform', event.transform))
