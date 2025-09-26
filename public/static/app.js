@@ -13,6 +13,7 @@
     members: [],
     tags: { interest: [], involvement: [], area: [] },
     loading: false,
+    formDraft: null,
     filter: {
       q: '',
       interest: new Set(),
@@ -266,6 +267,9 @@
         // Ensure image/link href works across browsers
         try { el.setAttributeNS(XLINK_NS, 'xlink:href', v) } catch(_) {}
         el.setAttribute('href', v)
+      } else if (!isSvg && k === 'value') {
+        // For form controls, set property to reflect value
+        try { el.value = v } catch (_) { el.setAttribute('value', v) }
       } else {
         el.setAttribute(k, v)
       }
@@ -639,21 +643,26 @@
   // Add/Edit page
   function FormPage(params) {
     const isEdit = !!params.id
-    const m = isEdit
-      ? JSON.parse(JSON.stringify(state.members.find((x) => x.id === params.id)))
-      : {
-          id: uid(),
-          name: '',
-          preferredName: '',
-          imageUrl: '',
-          occupation: '',
-          interestTags: [],
-          involvementTags: [],
-          whyLab: '',
-          whatToDo: '',
-          coreValuesTags: [],
-          areaTags: [],
-        }
+    const draftKey = isEdit ? params.id : 'new'
+    if (!state.formDraft || state.formDraft._key !== draftKey) {
+      state.formDraft = isEdit
+        ? { ...state.members.find((x) => x.id === params.id) }
+        : {
+            id: uid(),
+            name: '',
+            preferredName: '',
+            imageUrl: '',
+            occupation: '',
+            interestTags: [],
+            involvementTags: [],
+            whyLab: '',
+            whatToDo: '',
+            coreValuesTags: [],
+            areaTags: [],
+          }
+      state.formDraft._key = draftKey
+    }
+    const m = state.formDraft
 
     let imageMode = 'url' // or 'upload'
 
@@ -735,6 +744,7 @@
       try {
         if (isEdit) await api.updateMember(m.id, m)
         else await api.createMember(m)
+        state.formDraft = null
         await api.refreshAll()
         navigate('/')
       } catch (err) {
@@ -758,7 +768,7 @@
       field('whatToDo', 'ラボでやってみたいこと', 'textarea'),
       h('div', { class: 'flex gap-2 mt-4' },
         h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg min-h-[40px]', onClick: onSubmit }, isEdit ? '更新' : '登録'),
-        h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px]', onClick: () => history.back() }, 'キャンセル'),
+        h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px]', onClick: () => { state.formDraft = null; history.back() } }, 'キャンセル'),
       ),
     )
   }
@@ -895,24 +905,28 @@
               h('div', {}, 'やってみたいこと: ' + m.whatToDo),
             ),
           ),
-          h('div', { class: 'flex items-center gap-2' },
-            h('input', { class: 'border border-gray-300 rounded-lg px-3 py-2 flex-1', placeholder: '大切にしていること（キーワード）' }),
-            h('button', { class: 'bg-amber-400 text-white px-3 py-2 rounded-lg hover:bg-amber-500', onClick: async function () {
-              const inp = this.previousSibling
-              const v = inp.value.trim()
+          (function(){
+            const cvInput = h('input', { class: 'border border-gray-300 rounded-lg px-3 py-2 flex-1', placeholder: '大切にしていること（キーワード）' })
+            const add = async () => {
+              const v = cvInput.value.trim()
               if (!v) return
               if (!state.operatorName) return alert('先にあなたの名前を入力してください')
               try {
                 await api.addCoreValue(m.id, v, state.operatorName)
                 m.coreValuesTags.push({ value: v, author: state.operatorName })
-                inp.value = ''
+                cvInput.value = ''
                 update()
               } catch (err) {
                 Debug.error('[CoreValue add] failed', err)
                 alert('追加に失敗しました')
               }
-            } }, '追加'),
-          ),
+            }
+            cvInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add() } })
+            return h('div', { class: 'flex items-center gap-2' },
+              cvInput,
+              h('button', { class: 'bg-amber-400 text-white px-3 py-2 rounded-lg hover:bg-amber-500', onClick: add }, '追加')
+            )
+          })(),
           h('div', { class: 'flex flex-wrap gap-2' },
             m.coreValuesTags.map((cv, idx) =>
               h(
@@ -995,11 +1009,16 @@
               class: 'px-2 py-1 rounded-lg text-xs border bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-300',
               onClick: function () {
                 const set = selected[type]
-                if (set.has(t)) set.delete(t)
+                const wasActive = set.has(t)
+                if (wasActive) set.delete(t)
                 else set.add(t)
-                this.classList.toggle(activeBg)
-                this.classList.toggle('text-white')
-                this.classList.toggle('border-transparent')
+                if (!wasActive) {
+                  this.classList.add(activeBg, 'text-white', 'border-transparent')
+                  this.classList.remove('bg-gray-100', 'text-gray-700', 'border-gray-300')
+                } else {
+                  this.classList.remove(activeBg, 'text-white', 'border-transparent')
+                  this.classList.add('bg-gray-100', 'text-gray-700', 'border-gray-300')
+                }
                 Debug.log('[Correlation] selected', type, Array.from(set))
                 scheduleDraw()
               },
