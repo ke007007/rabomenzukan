@@ -699,7 +699,10 @@
             placeholder: 'https://...jpg',
             class: 'w-full border border-gray-300 rounded-lg px-3 py-2',
             value: m.imageUrl,
-            onInput: (e) => (m.imageUrl = e.target.value),
+            onInput: (e) => {
+              m.imageUrl = e.target.value
+              update()
+            },
           })
         : h('input', {
             type: 'file',
@@ -708,8 +711,16 @@
             onChange: async (e) => {
               const file = e.target.files?.[0]
               if (!file) return
+              // 軽いバリデーション（2MB超は警告）
+              if (file.size > 2 * 1024 * 1024) {
+                alert('画像サイズが大きいです（2MB以下を推奨）。このまま続行します。')
+              }
               const reader = new FileReader()
-              reader.onload = () => (m.imageUrl = reader.result)
+              reader.onload = () => {
+                m.imageUrl = reader.result
+                update()
+              }
+              reader.onerror = () => alert('画像の読み込みに失敗しました')
               reader.readAsDataURL(file)
             },
           }),
