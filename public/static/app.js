@@ -11,6 +11,8 @@
   const state = {
     operatorName: '',
     members: [],
+    tags: { interest: [], involvement: [], area: [] },
+    loading: false,
     filter: {
       q: '',
       interest: new Set(),
@@ -102,6 +104,88 @@
       ],
     },
   ]
+
+  // ---- API client & helpers ----
+  const api = {
+    async _json(res) {
+      if (!res.ok) {
+        const txt = await res.text().catch(()=> '')
+        throw new Error(`HTTP ${res.status} ${res.statusText} ${txt}`)
+      }
+      return res.json()
+    },
+    async getMembers() {
+      return this._json(await fetch('/api/members'))
+    },
+    async createMember(m) {
+      return this._json(
+        await fetch('/api/members', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(m),
+        })
+      )
+    },
+    async updateMember(id, m) {
+      return this._json(
+        await fetch(`/api/members/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(m),
+        })
+      )
+    },
+    async deleteMember(id) {
+      return this._json(
+        await fetch(`/api/members/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      )
+    },
+    async addCoreValue(id, value, author) {
+      return this._json(
+        await fetch(`/api/member/${encodeURIComponent(id)}/core-values`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value, author }),
+        })
+      )
+    },
+    async deleteCoreValue(id, value, author) {
+      const qs = new URLSearchParams({ value, author }).toString()
+      return this._json(
+        await fetch(`/api/member/${encodeURIComponent(id)}/core-values?${qs}`, { method: 'DELETE' })
+      )
+    },
+    async getTags(category) {
+      const url = category ? `/api/tags?category=${encodeURIComponent(category)}` : '/api/tags'
+      return this._json(await fetch(url))
+    },
+    async refreshAll() {
+      state.loading = true
+      update()
+      try {
+        const [members, interest, involvement, area] = await Promise.all([
+          this.getMembers(),
+          this.getTags('interest'),
+          this.getTags('involvement'),
+          this.getTags('area'),
+        ])
+        state.members = injectAvatars(members)
+        state.tags = {
+          interest: interest.map((t) => t.name),
+          involvement: involvement.map((t) => t.name),
+          area: area.map((t) => t.name),
+        }
+      } finally {
+        state.loading = false
+        update()
+      }
+    },
+  }
+
+  function injectAvatars(members) {
+    // Placeholder for future avatar enrichment if needed
+    return members.map((m) => ({ ...m }))
+  }
 
   // Debug helper (overlay + logs)
   const Debug = (() => {
@@ -842,10 +926,16 @@
                   'button',
                   {
                     class: 'text-gray-500 hover:text-red-600',
-                    onClick: () => {
-                      m.coreValuesTags.splice(idx, 1)
-                      update()
-                    },
+                    onClick: async () => {
+                      try {
+                        await api.deleteCoreValue(m.id, cv.value, cv.author)
+                        m.coreValuesTags.splice(idx, 1)
+                        update()
+                      } catch (err) {
+                        Debug.error('[CoreValue delete] failed', err)
+                        alert('削除に失敗しました')
+                      }
+                    }
                   },
                   '×',
                 ),
@@ -1368,6 +1458,9 @@
     }
     root.innerHTML = ''
     root.appendChild(Header())
+    if (state.loading) {
+      root.appendChild(h('div', { class: 'container mx-auto px-4' }, h('div', { class: 'my-2 text-sm text-gray-600' }, '読み込み中…')))
+    }
     const view = Router()
     root.appendChild(view)
     // after mount, log sizes for debug

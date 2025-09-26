@@ -9,12 +9,12 @@
     "deploy:prod": "npm run build && wrangler pages deploy dist --project-name webapp",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "clean-port": "fuser -k 3000/tcp 2>/dev/null || true",
-    "db:migrate:local": "wrangler d1 migrations apply webapp-production --local",
-    "db:migrate:prod": "wrangler d1 migrations apply webapp-production",
-    "db:seed": "wrangler d1 execute webapp-production --local --file=./seed.sql",
+    "db:migrate:local": "wrangler d1 migrations apply webapp-production --local --config wrangler.jsonc",
+    "db:migrate:prod": "wrangler d1 migrations apply webapp-production --config wrangler.jsonc",
+    "db:seed": "wrangler d1 execute webapp-production --local --file=./seed.sql --config wrangler.jsonc",
     "db:reset": "rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local && npm run db:seed",
-    "db:console:local": "wrangler d1 execute webapp-production --local",
-    "db:console:prod": "wrangler d1 execute webapp-production"
+    "db:console:local": "wrangler d1 execute webapp-production --local --config wrangler.jsonc",
+    "db:console:prod": "wrangler d1 execute webapp-production --config wrangler.jsonc"
   },
   "dependencies": {
     "hono": "^4.9.8"
