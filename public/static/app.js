@@ -157,16 +157,33 @@
 
   // Utilities
   function h(tag, props = {}, ...children) {
-    const el = document.createElement(tag)
+    const SVG_NS = 'http://www.w3.org/2000/svg'
+    const XLINK_NS = 'http://www.w3.org/1999/xlink'
+    const SVG_TAGS = new Set(['svg','g','line','circle','rect','path','text','image','clipPath','defs','title'])
+    const isSvg = SVG_TAGS.has(tag)
+    const el = isSvg ? document.createElementNS(SVG_NS, tag) : document.createElement(tag)
+
     Object.entries(props || {}).forEach(([k, v]) => {
-      if (k === 'class') el.className = v
-      else if (k === 'html') el.innerHTML = v
-      else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v)
-      else if (v !== undefined && v !== null) el.setAttribute(k, v)
+      if (v === undefined || v === null) return
+      if (k === 'class') {
+        if (isSvg) el.setAttribute('class', v)
+        else el.className = v
+      } else if (k === 'html') {
+        if (!isSvg) el.innerHTML = v
+      } else if (k.startsWith('on') && typeof v === 'function') {
+        el.addEventListener(k.slice(2).toLowerCase(), v)
+      } else if (isSvg && k === 'href') {
+        // Ensure image/link href works across browsers
+        try { el.setAttributeNS(XLINK_NS, 'xlink:href', v) } catch(_) {}
+        el.setAttribute('href', v)
+      } else {
+        el.setAttribute(k, v)
+      }
     })
+
     children.flat().forEach((c) => {
       if (c == null) return
-      if (typeof c === 'string' || typeof c === 'number') el.appendChild(document.createTextNode(c))
+      if (typeof c === 'string' || typeof c === 'number') el.appendChild(document.createTextNode(String(c)))
       else el.appendChild(c)
     })
     return el
@@ -198,6 +215,16 @@
   // State management (in-memory only)
   function init() {
     state.members = seedMembers.map((m) => ({ ...m }))
+    // Demo: mix of members with and without images
+    // royalty-free sample avatars
+    const sampleAvatars = [
+      'https://images.unsplash.com/photo-1502685104226-ee32379fefbe?q=80&w=256&auto=format&fit=facearea&facepad=2&crop=faces',
+      'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=256&auto=format&fit=facearea&facepad=2&crop=faces',
+      'https://images.unsplash.com/photo-1547425260-76bcadfb4f2c?q=80&w=256&auto=format&fit=facearea&facepad=2&crop=faces'
+    ]
+    state.members.forEach((m, i) => {
+      if (i % 2 === 0) m.imageUrl = sampleAvatars[i % sampleAvatars.length]
+    })
     Debug.log('[Init] members', state.members.length)
     render()
   }
@@ -894,12 +921,14 @@
       const height = 440
       if (!width || width < 100) width = 800
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
-      // baseline frame for debug visibility
-      try {
-        const gBase = d3.select(svg).append('g').attr('data-debug','baseline')
-        gBase.append('rect').attr('x',0.5).attr('y',0.5).attr('width',width-1).attr('height',height-1).attr('fill','none').attr('stroke','#93c5fd').attr('stroke-dasharray','4,2').attr('pointer-events','none')
-        gBase.append('text').attr('x',8).attr('y',20).attr('fill','#60a5fa').attr('font-size',12).text(`${width}x${height}`)
-      } catch (__) {}
+      // baseline frame for debug visibility (debug時のみ)
+      if (debugOn) {
+        try {
+          const gBase = d3.select(svg).append('g').attr('data-debug','baseline')
+          gBase.append('rect').attr('x',0.5).attr('y',0.5).attr('width',width-1).attr('height',height-1).attr('fill','none').attr('stroke','#93c5fd').attr('stroke-dasharray','4,2').attr('pointer-events','none')
+          gBase.append('text').attr('x',8).attr('y',20).attr('fill','#60a5fa').attr('font-size',12).text(`${width}x${height}`)
+        } catch (__) {}
+      }
       Debug.log('[Correlation] width:', width, 'height:', height, 'selected:', Array.from(selected))
 
       const members = state.members
@@ -919,10 +948,12 @@
       }
 
       const links = []
-      for (let i = 0; i < members.length; i++) {
-        for (let j = i + 1; j < members.length; j++) {
-          const common = commonTags(members[i], members[j])
-          if (common.length) links.push({ source: members[i].id, target: members[j].id, tags: common })
+      if (selected.size > 0) {
+        for (let i = 0; i < members.length; i++) {
+          for (let j = i + 1; j < members.length; j++) {
+            const common = commonTags(members[i], members[j])
+            if (common.length) links.push({ source: members[i].id, target: members[j].id, tags: common })
+          }
         }
       }
       Debug.log('[Correlation] nodes:', nodes.length, 'links:', links.length)
@@ -1019,19 +1050,27 @@
 
       node.append('circle').attr('r', 22).attr('fill', '#e5e7eb')
 
+      // Use <defs><clipPath> for consistent image clipping across browsers
+      const defs = g.append('defs')
+      const cp = defs.append('clipPath')
+        .attr('id', 'avatar-clip')
+        .attr('clipPathUnits', 'objectBoundingBox')
+      cp.append('circle')
+        .attr('r', 0.5)
+        .attr('cx', 0.5)
+        .attr('cy', 0.5)
+
       node
         .append('image')
         .attr(
           'href',
-          (d) =>
-            d.member.imageUrl ||
-            'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><rect width="100%" height="100%" fill="%23e5e7eb"/><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" font-size="12" fill="%236b7280">No Img</text></svg>',
+          (d) => d.member.imageUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><circle cx="20" cy="20" r="20" fill="%23e5e7eb"/><text x="50%" y="52%" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="%236b7280">人</text></svg>',
         )
         .attr('x', -20)
         .attr('y', -20)
         .attr('width', 40)
         .attr('height', 40)
-        .attr('clip-path', 'circle(20px at 20px 20px)')
+        .attr('clip-path', 'url(#avatar-clip)')
         .append('title')
         .text((d) => d.member.name)
 
@@ -1161,13 +1200,19 @@
       const color = d3.scaleOrdinal(Tableau10)
 
       // D3 force to avoid overlap
-      const nodes = items.map((d) => ({ ...d, x: Math.random() * width, y: Math.random() * height }))
+      const nodes = items.map((d) => {
+        const fs = size(d.count)
+        const w = Math.max(8, d.text.length * fs * 0.6)
+        const h = fs
+        const r = Math.sqrt((w*w + h*h)) / 2 + 4
+        return { ...d, fs, w, h, r, x: Math.random() * width, y: Math.random() * height }
+      })
       const sim = d3
         .forceSimulation(nodes)
-        .force('charge', d3.forceManyBody().strength(-2))
-        .force('collide', d3.forceCollide().radius((d) => size(d.count) * 0.6))
-        .force('x', d3.forceX(width / 2).strength(0.05))
-        .force('y', d3.forceY(height / 2).strength(0.05))
+        .force('charge', d3.forceManyBody().strength(-1))
+        .force('collide', d3.forceCollide().radius((d) => d.r).strength(1))
+        .force('x', d3.forceX(width / 2).strength(0.08))
+        .force('y', d3.forceY(height / 2).strength(0.08))
 
       const g = d3.select(svg).append('g')
       const zoom = d3.zoom().on('zoom', (event) => g.attr('transform', event.transform))
@@ -1209,7 +1254,7 @@
         .append('text')
         .attr('x', (d) => d.x)
         .attr('y', (d) => d.y)
-        .attr('font-size', (d) => size(d.count))
+        .attr('font-size', (d) => d.fs)
         .attr('fill', (d) => color(d.text))
         .attr('text-anchor', 'middle')
         .attr('dominant-baseline', 'middle')
