@@ -741,6 +741,8 @@
         alert('氏名と呼ばれたい名前は必須です')
         return
       }
+      state.saving = true
+      update()
       try {
         if (isEdit) await api.updateMember(m.id, m)
         else await api.createMember(m)
@@ -750,6 +752,9 @@
       } catch (err) {
         Debug.error('[Save] failed', err)
         alert('保存に失敗しました')
+      } finally {
+        state.saving = false
+        update()
       }
     }
 
@@ -766,9 +771,10 @@
       ),
       field('whyLab', 'どうしてラボへ？', 'textarea'),
       field('whatToDo', 'ラボでやってみたいこと', 'textarea'),
-      h('div', { class: 'flex gap-2 mt-4' },
-        h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg min-h-[40px]', onClick: onSubmit }, isEdit ? '更新' : '登録'),
-        h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px]', onClick: () => { state.formDraft = null; history.back() } }, 'キャンセル'),
+      h('div', { class: 'flex gap-2 mt-4 items-center' },
+        h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: onSubmit, disabled: state.saving }, state.saving ? '更新中…' : (isEdit ? '更新' : '登録')),
+        h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: () => { if (state.saving) return; state.formDraft = null; history.back() }, disabled: state.saving }, 'キャンセル'),
+        state.saving ? h('span', { class: 'text-xs text-gray-500' }, 'サーバに保存中です…') : null,
       ),
     )
   }
@@ -1151,14 +1157,16 @@
       svgWrap.style.position = 'relative'
       svgWrap.appendChild(tooltip)
 
-      const link = g
-        .selectAll('line')
+      // 大きめの透明ヒットエリアで細い線のツールチップを出しやすく
+      const linkHit = g
+        .selectAll('line.hit')
         .data(links)
         .enter()
         .append('line')
-        .attr('stroke', (d) => catColor(d))
-        .attr('stroke-width', (d) => linkWidth(d.total))
-        .attr('stroke-opacity', 0.85)
+        .attr('class', 'hit')
+        .attr('stroke', 'transparent')
+        .attr('stroke-width', 16)
+        .style('pointer-events', 'stroke')
         .on('mousemove', function (event, d) {
           tooltip.innerHTML = `[興味関心] ${(d.by.interest.join(', ')||'-')}  ` + ` [関わり方] ${(d.by.involvement.join(', ')||'-')}  ` + ` [活動エリア] ${(d.by.area.join(', ')||'-')}`
           tooltip.style.left = event.offsetX + 10 + 'px'
@@ -1166,6 +1174,17 @@
           tooltip.classList.remove('hidden')
         })
         .on('mouseout', () => tooltip.classList.add('hidden'))
+
+      const link = g
+        .selectAll('line.visible')
+        .data(links)
+        .enter()
+        .append('line')
+        .attr('class', 'visible')
+        .attr('stroke', (d) => catColor(d))
+        .attr('stroke-width', (d) => linkWidth(d.total))
+        .attr('stroke-opacity', 0.85)
+        .style('pointer-events', 'none')
 
       const node = g
         .selectAll('g.node')
@@ -1227,6 +1246,12 @@
         .text((d) => d.member.name)
 
       simulation.on('tick', () => {
+        linkHit
+          .attr('x1', (d) => d.source.x)
+          .attr('y1', (d) => d.source.y)
+          .attr('x2', (d) => d.target.x)
+          .attr('y2', (d) => d.target.y)
+
         link
           .attr('x1', (d) => d.source.x)
           .attr('y1', (d) => d.source.y)
