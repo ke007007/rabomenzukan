@@ -13,6 +13,51 @@ app.use('/api/*', cors())
 // Serve static assets from public/
 app.use('/static/*', serveStatic({ root: './public' }))
 
+// ---------- Ensure schema (dev/preview safety) ----------
+const ensureSchema = async (db: D1Database) => {
+  // Create tables and indexes if they do not exist (idempotent)
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS members (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      preferred_name TEXT,
+      image_url TEXT,
+      occupation TEXT,
+      why_lab TEXT,
+      what_to_do TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL CHECK (category IN ('interest','involvement','area')),
+      UNIQUE(name, category)
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS member_tags (
+      member_id TEXT NOT NULL,
+      tag_id INTEGER NOT NULL,
+      PRIMARY KEY (member_id, tag_id),
+      FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+      FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS core_values (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      member_id TEXT NOT NULL,
+      value TEXT NOT NULL,
+      author TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_member_tags_member ON member_tags(member_id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_member_tags_tag ON member_tags(tag_id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_tags_category ON tags(category)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_core_values_member ON core_values(member_id)`),
+  ])
+}
+
+// Run ensureSchema for all API routes (no-op if already migrated)
+app.use('/api/*', async (c, next) => { try { await ensureSchema(c.env.DB) } catch (_) {} return next() })
+
 // ---------- API: Members & Tags (D1) ----------
 
 // GET /api/members - list with grouped tags and core values
