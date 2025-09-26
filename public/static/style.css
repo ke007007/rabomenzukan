@@ -20,3 +20,8 @@ html, body { height: 100%; }
   border-top: 1px solid #374151;
 }
 .hidden { display: none; }
+
+/* Debug: relax SVG wrapper overflow and raise z-index */
+.debug-svg-wrap { overflow: visible !important; z-index: 50; outline: 1px dashed #93c5fd; }
+/* Tooltip inside svg wrap */
+.cf-tooltip { z-index: 60; }

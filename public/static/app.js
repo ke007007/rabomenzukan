@@ -850,7 +850,8 @@
       ),
     )
 
-    const svgWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 overflow-hidden relative' })
+    const debugOn = (localStorage.getItem('debug') === '1')
+    const svgWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 relative ' + (debugOn ? 'debug-svg-wrap' : 'overflow-hidden') })
     const svg = h('svg', { width: '100%', height: 480 })
     svgWrap.appendChild(svg)
 
@@ -893,7 +894,13 @@
       const height = 440
       if (!width || width < 100) width = 800
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
-      console.log('[Correlation] width:', width, 'height:', height, 'selected:', Array.from(selected))
+      // baseline frame for debug visibility
+      try {
+        const gBase = d3.select(svg).append('g').attr('data-debug','baseline')
+        gBase.append('rect').attr('x',0.5).attr('y',0.5).attr('width',width-1).attr('height',height-1).attr('fill','none').attr('stroke','#93c5fd').attr('stroke-dasharray','4,2').attr('pointer-events','none')
+        gBase.append('text').attr('x',8).attr('y',20).attr('fill','#60a5fa').attr('font-size',12).text(`${width}x${height}`)
+      } catch (__) {}
+      Debug.log('[Correlation] width:', width, 'height:', height, 'selected:', Array.from(selected))
 
       const members = state.members
       Debug.log('[Correlation] members sample', members.slice(0,2))
@@ -918,7 +925,7 @@
           if (common.length) links.push({ source: members[i].id, target: members[j].id, tags: common })
         }
       }
-      console.log('[Correlation] nodes:', nodes.length, 'links:', links.length)
+      Debug.log('[Correlation] nodes:', nodes.length, 'links:', links.length)
 
       // Clear previous drawing before deciding what to render
       svg.innerHTML = ''
@@ -958,6 +965,8 @@
         g.attr('transform', event.transform)
       })
       d3.select(svg).call(zoom)
+      // Reset zoom to identity to avoid hidden state
+      d3.select(svg).call(zoom.transform, d3.zoomIdentity)
 
       // remove old tooltip if any
       svgWrap.querySelectorAll('.cf-tooltip').forEach((el) => el.remove())
@@ -1035,6 +1044,31 @@
 
         node.attr('transform', (d) => `translate(${d.x},${d.y})`)
       })
+
+      // visibility check and auto-fit
+      try {
+        const maxAttempts = 3
+        let attempt = 0
+        const check = () => {
+          try {
+            const bbox = g.node().getBBox()
+            Debug.log('[Correlation] bbox', {x:bbox.x, y:bbox.y, w:bbox.width, h:bbox.height})
+            if (!bbox.width || !bbox.height || bbox.width < 1 || bbox.height < 1) {
+              if (++attempt <= maxAttempts) return requestAnimationFrame(check)
+            }
+            const pad = 40
+            const sx = width / (bbox.width + pad)
+            const sy = height / (bbox.height + pad)
+            const scale = Math.min(1, sx, sy)
+            const tx = width / 2 - (bbox.x + bbox.width / 2) * scale
+            const ty = height / 2 - (bbox.y + bbox.height / 2) * scale
+            d3.select(svg).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale))
+          } catch (e) {
+            console.warn('[Correlation] ensureVisible failed', e)
+          }
+        }
+        requestAnimationFrame(check)
+      } catch (__) {}
     }
 
     const wrap = container(
@@ -1051,7 +1085,8 @@
 
   // Core values word cloud (force layout, zoom/drag, size by frequency)
   function CoreValuesPage() {
-    const svgWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 overflow-hidden relative' })
+    const debugOn = (localStorage.getItem('debug') === '1')
+    const svgWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 relative ' + (debugOn ? 'debug-svg-wrap' : 'overflow-hidden') })
     const svg = h('svg', { width: '100%', height: 480 })
     svgWrap.appendChild(svg)
 
@@ -1105,7 +1140,13 @@
       const height = 440
       if (!width || width < 100) width = 800
       svg.setAttribute('viewBox', `0 0 ${width} ${height}` )
-      console.log('[CoreValues] width:', width, 'height:', height, 'words:', words.length)
+      // baseline frame for debug visibility
+      try {
+        const gBase = d3.select(svg).append('g').attr('data-debug','baseline')
+        gBase.append('rect').attr('x',0.5).attr('y',0.5).attr('width',width-1).attr('height',height-1).attr('fill','none').attr('stroke','#93c5fd').attr('stroke-dasharray','4,2').attr('pointer-events','none')
+        gBase.append('text').attr('x',8).attr('y',20).attr('fill','#60a5fa').attr('font-size',12).text(`${width}x${height}`)
+      } catch (__) {}
+      Debug.log('[CoreValues] width:', width, 'height:', height, 'words:', words.length)
 
       // frequency map
       const freq = new Map()
@@ -1131,6 +1172,35 @@
       const g = d3.select(svg).append('g')
       const zoom = d3.zoom().on('zoom', (event) => g.attr('transform', event.transform))
       d3.select(svg).call(zoom)
+      // Reset zoom to identity to avoid hidden state
+      d3.select(svg).call(zoom.transform, d3.zoomIdentity)
+
+      // visibility check and auto-fit
+      try {
+        const maxAttempts = 3
+        let attempt = 0
+        const check = () => {
+          try {
+            const bbox = g.node().getBBox()
+            Debug.log('[CoreValues] bbox', {x:bbox.x, y:bbox.y, w:bbox.width, h:bbox.height})
+            if (!bbox.width || !bbox.height || bbox.width < 1 || bbox.height < 1) {
+              if (++attempt <= maxAttempts) return requestAnimationFrame(check)
+            }
+            const pad = 40
+            const sx = width / (bbox.width + pad)
+            const sy = height / (bbox.height + pad)
+            const scale = Math.min(1, sx, sy)
+            const tx = width / 2 - (bbox.x + bbox.width / 2) * scale
+            const ty = height / 2 - (bbox.y + bbox.height / 2) * scale
+            d3.select(svg).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale))
+          } catch (e) {
+            console.warn('[CoreValues] ensureVisible failed', e)
+          }
+        }
+        requestAnimationFrame(check)
+      } catch (__) {}
+      // Reset zoom to identity to avoid hidden state
+      d3.select(svg).call(zoom.transform, d3.zoomIdentity)
 
       const texts = g
         .selectAll('text')
