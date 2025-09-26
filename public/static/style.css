@@ -4,3 +4,19 @@ html, body { height: 100%; }
 
 /* Tooltip helper for D3 */
 .tooltip { pointer-events: none; }
+
+/* Debug overlay */
+.debug-overlay {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  max-height: 40vh;
+  overflow: auto;
+  background: rgba(0,0,0,0.8);
+  color: #e5e7eb;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  padding: 8px 12px;
+  z-index: 9999;
+  border-top: 1px solid #374151;
+}
+.hidden { display: none; }

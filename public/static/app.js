@@ -97,6 +97,64 @@
     },
   ]
 
+  // Debug helper (overlay + logs)
+  const Debug = (() => {
+    let active = false
+    try {
+      const params = new URLSearchParams((location.hash.split('?')[1]) || '')
+      if (params.get('debug') === '1' || localStorage.getItem('debug') === '1') active = true
+    } catch (_) {}
+
+    const overlay = document.createElement('div')
+    overlay.id = 'debug-overlay'
+    overlay.className = 'debug-overlay hidden'
+
+    const ensureOverlay = () => {
+      if (!document.body) return setTimeout(ensureOverlay, 0)
+      if (!document.getElementById('debug-overlay')) document.body.appendChild(overlay)
+    }
+    ensureOverlay()
+
+    const write = (level, ...args) => {
+      const native = (console[level] || console.log).bind(console)
+      native(...args)
+      if (!active) return
+      const line = document.createElement('div')
+      const prefix = `[${new Date().toISOString()}][${level.toUpperCase()}] `
+      const msg = args.map((a) => {
+        try {
+          return typeof a === 'object' ? JSON.stringify(a) : String(a)
+        } catch (_) {
+          return String(a)
+        }
+      }).join(' ')
+      line.textContent = prefix + msg
+      overlay.appendChild(line)
+      overlay.scrollTop = overlay.scrollHeight
+    }
+
+    window.addEventListener('error', (e) => write('error', '[onerror]', e.message, e.filename, e.lineno))
+    window.addEventListener('unhandledrejection', (e) => write('error', '[unhandledrejection]', e.reason))
+
+    const setActive = (v) => {
+      active = !!v
+      localStorage.setItem('debug', active ? '1' : '0')
+      overlay.classList.toggle('hidden', !active)
+      if (active) write('log', '[Debug] enabled', { ua: navigator.userAgent, w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio })
+      else write('log', '[Debug] disabled')
+    }
+
+    // initialize visibility
+    if (active) overlay.classList.remove('hidden')
+
+    return {
+      log: (...a) => write('log', ...a),
+      warn: (...a) => write('warn', ...a),
+      error: (...a) => write('error', ...a),
+      setActive,
+    }
+  })()
+
   // Utilities
   function h(tag, props = {}, ...children) {
     const el = document.createElement(tag)
@@ -128,10 +186,19 @@
   }
 
   window.addEventListener('hashchange', render)
+  // expose Debug toggle
+  window.Debug = Debug
+  window.addEventListener('keydown', (e) => {
+    if (e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+      const on = localStorage.getItem('debug') !== '1'
+      Debug.setActive(on)
+    }
+  })
 
   // State management (in-memory only)
   function init() {
     state.members = seedMembers.map((m) => ({ ...m }))
+    Debug.log('[Init] members', state.members.length)
     render()
   }
 
@@ -774,6 +841,7 @@
               else selected.add(t)
               this.classList.toggle('bg-sky-500')
               this.classList.toggle('text-white')
+              Debug.log('[Correlation] selected tags', Array.from(selected))
               scheduleDraw()
             },
           },
@@ -819,13 +887,16 @@
         return
       }
       // fallback width if not yet mounted
-      let width = svgWrap.clientWidth - 16
+      let raw = svgWrap ? svgWrap.clientWidth : 0
+      let width = raw - 16
+      Debug.log('[Correlation] measured width raw:', raw, 'computed:', width)
       const height = 440
       if (!width || width < 100) width = 800
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
       console.log('[Correlation] width:', width, 'height:', height, 'selected:', Array.from(selected))
 
       const members = state.members
+      Debug.log('[Correlation] members sample', members.slice(0,2))
       if (!members.length) {
         svg.innerHTML = '<text x="12" y="24" fill="#6b7280">メンバーがいません</text>'
         return
@@ -854,6 +925,8 @@
 
       if (!links.length) {
         const msg = d3.select(svg).append('g')
+        .attr('data-debug', 'true')
+        .attr('data-links', 0)
         msg
           .append('text')
           .attr('x', 12)
@@ -879,6 +952,7 @@
         .force('center', d3.forceCenter(width / 2, height / 2))
 
       const g = d3.select(svg).append('g')
+        .attr('data-debug','root')
 
       const zoom = d3.zoom().on('zoom', (event) => {
         g.attr('transform', event.transform)
@@ -1021,10 +1095,13 @@
       }
       const Tableau10 = d3.schemeTableau10
       const words = collectCoreValues()
+      Debug.log('[CoreValues] words sample', words.slice(0, 5))
 
       svg.innerHTML = ''
       // set viewBox with fallback width
-      let width = svgWrap.clientWidth - 16
+      let raw = svgWrap ? svgWrap.clientWidth : 0
+      let width = raw - 16
+      Debug.log('[CoreValues] measured width raw:', raw, 'computed:', width)
       const height = 440
       if (!width || width < 100) width = 800
       svg.setAttribute('viewBox', `0 0 ${width} ${height}` )
@@ -1139,12 +1216,23 @@
 
   function render() {
     const root = document.getElementById('root')
+    if (!root) {
+      Debug.error('[Render] #root not found')
+      return
+    }
     root.innerHTML = ''
     root.appendChild(Header())
-    root.appendChild(Router())
+    const view = Router()
+    root.appendChild(view)
+    // after mount, log sizes for debug
+    try {
+      const svgs = root.querySelectorAll('svg')
+      svgs.forEach((s, i) => Debug.log('[Render] svg', i, 'clientWidth', s.clientWidth, 'viewBox', s.getAttribute('viewBox')))
+    } catch (_) {}
   }
 
   function update() {
+    Debug.log('[Update] route', location.hash)
     render()
   }
 
