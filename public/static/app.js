@@ -711,11 +711,17 @@
               update()
             },
           })
-        : h('input', {
-            type: 'file',
-            accept: 'image/*',
-            class: 'w-full',
-            onChange: async (e) => {
+        : h('div', { class: 'space-y-2' },
+            h('div', { class: 'flex gap-2 items-center' },
+              h('button', { class: 'px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300', onClick: () => document.getElementById('avatar-file-input')?.click() }, 'ファイルを選択'),
+              h('span', { class: 'text-xs text-gray-500' }, 'JPEG/PNG, 2MB以下推奨')
+            ),
+            h('input', {
+              id: 'avatar-file-input',
+              type: 'file',
+              accept: 'image/*',
+              class: 'w-full hidden',
+              onChange: async (e) => {
               const file = e.target.files && e.target.files.length ? e.target.files[0] : null
               if (!file) {
                 alert('ファイルが選択されていません')
@@ -750,7 +756,8 @@
                 alert('画像の読み込みに失敗しました（readエラー）')
               }
             },
-          }),
+            })
+          ),
       h('div', { class: 'mt-2' },
         m.imageUrl
           ? h('img', { src: m.imageUrl, class: 'w-24 h-24 rounded-full object-cover' })
