@@ -753,6 +753,14 @@
     const allTags = Array.from(new Set(state.members.flatMap((m) => [...m.interestTags, ...m.involvementTags])))
     const selected = new Set()
 
+    let rafId = 0
+    const scheduleDraw = () => {
+      if (rafId) cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(() => {
+        draw().catch((e) => console.error('[Correlation] draw error:', e))
+      })
+    }
+
     const panel = h(
       'div',
       { class: 'flex flex-wrap gap-2 mb-3' },
@@ -766,7 +774,7 @@
               else selected.add(t)
               this.classList.toggle('bg-sky-500')
               this.classList.toggle('text-white')
-              draw()
+              scheduleDraw()
             },
           },
           t,
@@ -778,31 +786,50 @@
     const svg = h('svg', { width: '100%', height: 480 })
     svgWrap.appendChild(svg)
 
+    // Observe size changes to re-draw when layout stabilizes
+    const ro = new ResizeObserver(() => scheduleDraw())
+    ro.observe(svgWrap)
+
     const exportBtn = h(
       'button',
       { class: 'bg-gray-200 hover:bg-gray-300 px-3 py-2 rounded-lg mt-3' },
       'PNGとして保存',
     )
     exportBtn.addEventListener('click', async () => {
-      const node = svgWrap
-      const { toPng } = await import('https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/+esm')
-      const dataUrl = await toPng(node)
-      const a = document.createElement('a')
-      a.href = dataUrl
-      a.download = 'correlation.png'
-      a.click()
+      try {
+        const node = svgWrap
+        const { toPng } = await import('https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/+esm')
+        const dataUrl = await toPng(node)
+        const a = document.createElement('a')
+        a.href = dataUrl
+        a.download = 'correlation.png'
+        a.click()
+      } catch (e) {
+        console.error('[Correlation] export failed:', e)
+      }
     })
 
     async function draw() {
-      const d3 = await import('https://cdn.jsdelivr.net/npm/d3@7/+esm')
+      let d3
+      try {
+        d3 = await import('https://cdn.jsdelivr.net/npm/d3@7/+esm')
+      } catch (e) {
+        console.error('[Correlation] Failed to load d3:', e)
+        svg.innerHTML = '<text x="12" y="24" fill="#ef4444">D3の読み込みに失敗しました。ネットワーク状況をご確認ください。</text>'
+        return
+      }
       // fallback width if not yet mounted
       let width = svgWrap.clientWidth - 16
       const height = 440
       if (!width || width < 100) width = 800
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
+      console.log('[Correlation] width:', width, 'height:', height, 'selected:', Array.from(selected))
 
       const members = state.members
-      if (!members.length) return
+      if (!members.length) {
+        svg.innerHTML = '<text x="12" y="24" fill="#6b7280">メンバーがいません</text>'
+        return
+      }
       const nodes = members.map((m) => ({ id: m.id, member: m }))
 
       function commonTags(a, b) {
@@ -820,9 +847,15 @@
           if (common.length) links.push({ source: members[i].id, target: members[j].id, tags: common })
         }
       }
+      console.log('[Correlation] nodes:', nodes.length, 'links:', links.length)
+
+      // Clear previous drawing before deciding what to render
+      svg.innerHTML = ''
+
       if (!links.length) {
         const msg = d3.select(svg).append('g')
-        msg.append('text')
+        msg
+          .append('text')
           .attr('x', 12)
           .attr('y', 24)
           .attr('fill', '#6b7280')
@@ -830,11 +863,14 @@
         return
       }
 
-      svg.innerHTML = ''
-      // viewBox set earlier with fallback width
-
-      const colorScale = d3.scaleSequential(d3.interpolateCividis).domain([1, Math.max(2, d3.max(links, d => d.tags.length) || 2)])
-      const linkWidth = d3.scaleLinear().domain([1, Math.max(2, d3.max(links, d => d.tags.length) || 2)]).range([1, 6])
+      const colorScale = d3.scaleSequential(d3.interpolateCividis).domain([
+        1,
+        Math.max(2, d3.max(links, (d) => d.tags.length) || 2),
+      ])
+      const linkWidth = d3
+        .scaleLinear()
+        .domain([1, Math.max(2, d3.max(links, (d) => d.tags.length) || 2)])
+        .range([1, 6])
 
       const simulation = d3
         .forceSimulation(nodes)
@@ -849,7 +885,11 @@
       })
       d3.select(svg).call(zoom)
 
-      const tooltip = h('div', { class: 'absolute text-xs bg-white shadow rounded px-2 py-1 border hidden' })
+      // remove old tooltip if any
+      svgWrap.querySelectorAll('.cf-tooltip').forEach((el) => el.remove())
+      const tooltip = h('div', {
+        class: 'cf-tooltip absolute text-xs bg-white shadow rounded px-2 py-1 border hidden',
+      })
       svgWrap.style.position = 'relative'
       svgWrap.appendChild(tooltip)
 
@@ -894,21 +934,23 @@
             }),
         )
 
-      node
-        .append('circle')
-        .attr('r', 22)
-        .attr('fill', '#e5e7eb')
+      node.append('circle').attr('r', 22).attr('fill', '#e5e7eb')
 
       node
         .append('image')
-        .attr('href', (d) => d.member.imageUrl || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><rect width="100%" height="100%" fill="%23e5e7eb"/><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" font-size="12" fill="%236b7280">No Img</text></svg>')
+        .attr(
+          'href',
+          (d) =>
+            d.member.imageUrl ||
+            'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44"><rect width="100%" height="100%" fill="%23e5e7eb"/><text x="50%" y="55%" dominant-baseline="middle" text-anchor="middle" font-size="12" fill="%236b7280">No Img</text></svg>',
+        )
         .attr('x', -20)
         .attr('y', -20)
         .attr('width', 40)
         .attr('height', 40)
         .attr('clip-path', 'circle(20px at 20px 20px)')
         .append('title')
-        .text(d => d.member.name)
+        .text((d) => d.member.name)
 
       simulation.on('tick', () => {
         link
@@ -928,7 +970,8 @@
       exportBtn,
     )
 
-    draw()
+    // Draw after layout
+    scheduleDraw()
     return wrap
   }
 
@@ -938,8 +981,44 @@
     const svg = h('svg', { width: '100%', height: 480 })
     svgWrap.appendChild(svg)
 
+    const exportBtn = h(
+      'button',
+      { class: 'bg-gray-200 hover:bg-gray-300 px-3 py-2 rounded-lg mt-3' },
+      'PNGとして保存',
+    )
+    exportBtn.addEventListener('click', async () => {
+      try {
+        const { toPng } = await import('https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/+esm')
+        const dataUrl = await toPng(svgWrap)
+        const a = document.createElement('a')
+        a.href = dataUrl
+        a.download = 'core-values.png'
+        a.click()
+      } catch (e) {
+        console.error('[CoreValues] export failed:', e)
+      }
+    })
+
+    let rafId = 0
+    const scheduleDraw = () => {
+      if (rafId) cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(() => {
+        draw().catch((e) => console.error('[CoreValues] draw error:', e))
+      })
+    }
+
+    const ro = new ResizeObserver(() => scheduleDraw())
+    ro.observe(svgWrap)
+
     async function draw() {
-      const d3 = await import('https://cdn.jsdelivr.net/npm/d3@7/+esm')
+      let d3
+      try {
+        d3 = await import('https://cdn.jsdelivr.net/npm/d3@7/+esm')
+      } catch (e) {
+        console.error('[CoreValues] Failed to load d3:', e)
+        svg.innerHTML = '<text x="12" y="24" fill="#ef4444">D3の読み込みに失敗しました。ネットワーク状況をご確認ください。</text>'
+        return
+      }
       const Tableau10 = d3.schemeTableau10
       const words = collectCoreValues()
 
@@ -948,7 +1027,8 @@
       let width = svgWrap.clientWidth - 16
       const height = 440
       if (!width || width < 100) width = 800
-      svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}` )
+      console.log('[CoreValues] width:', width, 'height:', height, 'words:', words.length)
 
       // frequency map
       const freq = new Map()
@@ -1015,9 +1095,11 @@
     const wrap = container(
       h('h1', { class: 'text-2xl font-bold text-gray-900' }, '大切にしていること（ワードクラウド）'),
       svgWrap,
+      exportBtn,
     )
 
-    draw()
+    // draw after layout
+    scheduleDraw()
     return wrap
   }
 
