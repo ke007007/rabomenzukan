@@ -376,7 +376,7 @@
       'button',
       {
         class:
-          'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg text-sm font-medium shadow',
+          'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg text-sm font-medium shadow min-h-[40px]',
         onClick: () => navigate('/add'),
       },
       h('i', { class: 'fas fa-user-plus mr-2' }),
@@ -387,7 +387,7 @@
 
     const grid = h(
       'div',
-      { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4' },
+      { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6' },
       members.map(Card),
     )
 
@@ -476,20 +476,20 @@
       'div',
       {
         class:
-          'bg-white rounded-lg shadow-lg p-4 hover:-translate-y-1 transition-all cursor-pointer flex flex-col gap-3',
+          'bg-white rounded-lg shadow-md md:shadow-lg p-3 md:p-4 hover:-translate-y-0.5 md:hover:-translate-y-1 transition-transform cursor-pointer flex flex-col gap-2 md:gap-3'
         onClick: openDetail,
       },
       h('div', { class: 'flex items-center gap-3' },
         img,
         h('div', {},
-          h('div', { class: 'text-lg font-bold' }, m.name),
-          h('div', { class: 'text-sm text-gray-600' }, `呼ばれたい名前: ${m.preferredName}`),
+          h('div', { class: 'text-base md:text-lg font-bold leading-tight' }, m.name),
+          h('div', { class: 'text-sm text-gray-600 leading-tight' }, m.preferredName),
         ),
       ),
       h('div', { class: 'space-y-2' },
         h('div', {}, tagPreview(m.interestTags, 'interest')),
         h('div', {}, tagPreview(m.involvementTags, 'involvement')),
-        h('div', { class: 'text-xs text-gray-600' }, '普段やってること: ' + snippet(m.occupation)),
+        h('div', { class: 'text-xs text-gray-600' }, '普段やっていること: ' + snippet(m.occupation)),
         h('div', { class: 'text-xs text-gray-600' }, 'どうしてラボへ？: ' + snippet(m.whyLab)),
         h('div', { class: 'text-xs text-gray-600' }, 'やってみたいこと: ' + snippet(m.whatToDo)),
       ),
@@ -518,18 +518,18 @@
 
     return container(
       back,
-      h('div', { class: 'mt-4 flex items-start gap-6' },
+      h('div', { class: 'mt-4 flex flex-col sm:flex-row items-start gap-4 sm:gap-6' },
         avatar,
         h('div', { class: 'space-y-2' },
-          h('div', { class: 'text-4xl font-extrabold text-gray-900' }, m.name),
-          h('div', { class: 'text-sm text-gray-600' }, `呼ばれたい名前: ${m.preferredName}`),
+          h('div', { class: 'text-2xl md:text-3xl font-extrabold text-gray-900 leading-tight' }, m.name),
+          h('div', { class: 'text-sm md:text-base text-gray-600 leading-tight' }, m.preferredName),
         ),
       ),
-      section('普段やっていること', h('div', { class: 'text-sm' }, m.occupation)),
+      section('普段やっていること', h('div', { class: 'text-sm md:text-base leading-relaxed' }, m.occupation)),
       section('興味関心', h('div', { class: 'flex flex-wrap gap-2' }, m.interestTags.map((t) => TagPill(t, 'interest')))),
       section('関わり方', h('div', { class: 'flex flex-wrap gap-2' }, m.involvementTags.map((t) => TagPill(t, 'involvement')))),
-      section('どうしてラボへ？', h('div', { class: 'text-sm' }, m.whyLab)),
-      section('ラボでやってみたいこと', h('div', { class: 'text-sm' }, m.whatToDo)),
+      section('どうしてラボへ？', h('div', { class: 'text-sm md:text-base leading-relaxed' }, m.whyLab)),
+      section('ラボでやってみたいこと', h('div', { class: 'text-sm md:text-base leading-relaxed' }, m.whatToDo)),
       section('大切にしていること', h('div', { class: 'flex flex-wrap gap-2' }, m.coreValuesTags.map((cv) => TagPill(`${cv.value} / ${cv.author}`, 'core')))),
     )
   }
@@ -537,8 +537,8 @@
   function section(title, content) {
     return h(
       'div',
-      { class: 'mt-6' },
-      h('div', { class: 'text-sm font-bold text-gray-700 mb-2' }, title),
+      { class: 'mt-5 md:mt-6' },
+      h('div', { class: 'text-sm md:text-base font-bold text-gray-700 mb-2' }, title),
       content,
     )
   }
@@ -652,7 +652,7 @@
       h('h1', { class: 'text-2xl font-bold text-gray-900 mb-4' }, isEdit ? 'ラボメン情報編集' : '新規ラボメン登録'),
       field('name', '氏名'),
       field('preferredName', '呼ばれたい名前'),
-      h('div', { class: 'space-y-1' }, h('label', { class: 'text-xs font-bold text-gray-600' }, 'プロフィール画像'), imageTabs),
+      h('div', { class: 'space-y-1' }, h('label', { class: 'text-xs font-bold text-gray-600' }, 'プロフィール画像'), imageTabs, h('div', { class: 'text-xs text-gray-500' }, '推奨: 正方形 256×256〜512×512（最大1MB目安）')),
       field('occupation', '普段やっていること', 'textarea'),
       h('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4' },
         TagInput('興味関心タグ', m.interestTags, 'interest'),
@@ -661,8 +661,8 @@
       field('whyLab', 'どうしてラボへ？', 'textarea'),
       field('whatToDo', 'ラボでやってみたいこと', 'textarea'),
       h('div', { class: 'flex gap-2 mt-4' },
-        h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg', onClick: onSubmit }, isEdit ? '更新' : '登録'),
-        h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg', onClick: () => history.back() }, 'キャンセル'),
+        h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg min-h-[40px]', onClick: onSubmit }, isEdit ? '更新' : '登録'),
+        h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px]', onClick: () => history.back() }, 'キャンセル'),
       ),
     )
   }
@@ -732,6 +732,7 @@
       input,
       chips(),
       h('div', { class: 'text-xs font-bold text-gray-600 mt-2' }, '既存タグ'),
+      h('div', { class: 'text-xs text-gray-500' }, 'クリックで追加／Enterで新規タグ追加'),
       quick,
     )
 
@@ -1149,12 +1150,14 @@
       const height = 440
       if (!width || width < 100) width = 800
       svg.setAttribute('viewBox', `0 0 ${width} ${height}` )
-      // baseline frame for debug visibility
-      try {
-        const gBase = d3.select(svg).append('g').attr('data-debug','baseline')
-        gBase.append('rect').attr('x',0.5).attr('y',0.5).attr('width',width-1).attr('height',height-1).attr('fill','none').attr('stroke','#93c5fd').attr('stroke-dasharray','4,2').attr('pointer-events','none')
-        gBase.append('text').attr('x',8).attr('y',20).attr('fill','#60a5fa').attr('font-size',12).text(`${width}x${height}`)
-      } catch (__) {}
+      // baseline frame for debug visibility (debug時のみ)
+      if (debugOn) {
+        try {
+          const gBase = d3.select(svg).append('g').attr('data-debug','baseline')
+          gBase.append('rect').attr('x',0.5).attr('y',0.5).attr('width',width-1).attr('height',height-1).attr('fill','none').attr('stroke','#93c5fd').attr('stroke-dasharray','4,2').attr('pointer-events','none')
+          gBase.append('text').attr('x',8).attr('y',20).attr('fill','#60a5fa').attr('font-size',12).text(`${width}x${height}`)
+        } catch (__) {}
+      }
       Debug.log('[CoreValues] width:', width, 'height:', height, 'words:', words.length)
 
       // frequency map
@@ -1174,7 +1177,7 @@
         const fs = size(d.count)
         const w = Math.max(8, d.text.length * fs * 0.6)
         const h = fs
-        const r = Math.sqrt((w*w + h*h)) / 2 + 4
+        const r = Math.sqrt((w*w + h*h)) / 2 + 6
         return { ...d, fs, w, h, r, x: Math.random() * width, y: Math.random() * height }
       })
       const sim = d3
@@ -1272,7 +1275,7 @@
   function container(...children) {
     return h(
       'main',
-      { class: 'container mx-auto px-4 py-6 space-y-3' },
+      { class: 'container mx-auto px-4 py-6 space-y-4 md:space-y-6' },
       ...children,
     )
   }
