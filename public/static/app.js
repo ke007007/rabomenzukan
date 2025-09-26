@@ -270,6 +270,11 @@
       } else if (!isSvg && k === 'value') {
         // For form controls, set property to reflect value
         try { el.value = v } catch (_) { el.setAttribute('value', v) }
+      } else if (typeof v === 'boolean') {
+        // Properly handle boolean attributes (e.g., disabled, checked)
+        try { (el as any)[k] = v } catch(_) {}
+        if (v) el.setAttribute(k, '')
+        else el.removeAttribute(k)
       } else {
         el.setAttribute(k, v)
       }
@@ -476,7 +481,7 @@
 
     const grid = h(
       'div',
-      { class: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6' },
+      { class: 'grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 gap-4 md:gap-6' },
       members.map(Card),
     )
 
@@ -783,8 +788,8 @@
       field('whyLab', 'どうしてラボへ？', 'textarea'),
       field('whatToDo', 'ラボでやってみたいこと', 'textarea'),
       h('div', { class: 'flex gap-2 mt-4 items-center' },
-        h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: onSubmit, disabled: state.saving }, state.saving ? '更新中…' : (isEdit ? '更新' : '登録')),
-        h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: () => { if (state.saving) return; state.formDraft = null; history.back() }, disabled: state.saving }, 'キャンセル'),
+        h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: onSubmit, disabled: !!state.saving }, state.saving ? '更新中…' : (isEdit ? '更新' : '登録')),
+        h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: () => { if (state.saving) return; state.formDraft = null; history.back() }, disabled: !!state.saving }, 'キャンセル'),
         state.saving ? h('span', { class: 'text-xs text-gray-500' }, 'サーバに保存中です…') : null,
       ),
     )

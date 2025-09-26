@@ -1,6 +1,6 @@
 /* Tailwindが主だが、細かな補助用のCSS */
 :root { color-scheme: light; }
-html, body { height: 100%; }
+html, body { min-height: 100%; height: auto; overflow-y: auto; }
 
 /* Tooltip helper for D3 */
 .tooltip { pointer-events: none; }
