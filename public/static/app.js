@@ -729,7 +729,7 @@
       ),
     )
 
-    const svgWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 overflow-hidden' })
+    const svgWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 overflow-hidden relative' })
     const svg = h('svg', { width: '100%', height: 480 })
     svgWrap.appendChild(svg)
 
@@ -774,13 +774,13 @@
       const height = 440
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
 
-      const colorScale = d3.scaleSequential(d3.interpolateCividis).domain([1, 8])
-      const linkWidth = d3.scaleLinear().domain([1, 8]).range([1, 6])
+      const colorScale = d3.scaleSequential(d3.interpolateCividis).domain([1, Math.max(2, d3.max(links, d => d.tags.length) || 2)])
+      const linkWidth = d3.scaleLinear().domain([1, Math.max(2, d3.max(links, d => d.tags.length) || 2)]).range([1, 6])
 
       const simulation = d3
         .forceSimulation(nodes)
-        .force('link', d3.forceLink(links).id((d) => d.id).distance(120))
-        .force('charge', d3.forceManyBody().strength(-200))
+        .force('link', d3.forceLink(links).id((d) => d.id).distance(140))
+        .force('charge', d3.forceManyBody().strength(-280))
         .force('center', d3.forceCenter(width / 2, height / 2))
 
       const g = d3.select(svg).append('g')
@@ -799,8 +799,9 @@
         .data(links)
         .enter()
         .append('line')
-        .attr('stroke', (d) => colorScale(Math.min(8, d.tags.length)))
-        .attr('stroke-width', (d) => linkWidth(Math.min(8, d.tags.length)))
+        .attr('stroke', (d) => colorScale(d.tags.length))
+        .attr('stroke-width', (d) => linkWidth(d.tags.length))
+        .attr('stroke-opacity', 0.85)
         .on('mousemove', function (event, d) {
           tooltip.textContent = d.tags.join(', ')
           tooltip.style.left = event.offsetX + 10 + 'px'
@@ -847,6 +848,8 @@
         .attr('width', 40)
         .attr('height', 40)
         .attr('clip-path', 'circle(20px at 20px 20px)')
+        .append('title')
+        .text(d => d.member.name)
 
       simulation.on('tick', () => {
         link
@@ -902,19 +905,16 @@
       const nodes = items.map((d) => ({ ...d, x: Math.random() * width, y: Math.random() * height }))
       const sim = d3
         .forceSimulation(nodes)
-        .force('charge', d3.forceManyBody().strength(0))
-        .force('collide', d3.forceCollide().radius((d) => size(d.count) * 0.7))
-        .force('x', d3.forceX(width / 2).strength(0.03))
-        .force('y', d3.forceY(height / 2).strength(0.03))
-        .stop()
-
-      for (let i = 0; i < 240; i++) sim.tick()
+        .force('charge', d3.forceManyBody().strength(-2))
+        .force('collide', d3.forceCollide().radius((d) => size(d.count) * 0.6))
+        .force('x', d3.forceX(width / 2).strength(0.05))
+        .force('y', d3.forceY(height / 2).strength(0.05))
 
       const g = d3.select(svg).append('g')
       const zoom = d3.zoom().on('zoom', (event) => g.attr('transform', event.transform))
       d3.select(svg).call(zoom)
 
-      g
+      const texts = g
         .selectAll('text')
         .data(nodes)
         .enter()
@@ -930,12 +930,25 @@
         .call(
           d3
             .drag()
+            .on('start', (event, d) => {
+              if (!event.active) sim.alphaTarget(0.3).restart()
+              d.fx = d.x
+              d.fy = d.y
+            })
             .on('drag', (event, d) => {
-              d.x = event.x
-              d.y = event.y
-              d3.select(event.sourceEvent.target).attr('x', d.x).attr('y', d.y)
+              d.fx = event.x
+              d.fy = event.y
+            })
+            .on('end', (event, d) => {
+              if (!event.active) sim.alphaTarget(0)
+              d.fx = null
+              d.fy = null
             }),
         )
+
+      sim.on('tick', () => {
+        texts.attr('x', (d) => d.x).attr('y', (d) => d.y)
+      })
     }
 
     const wrap = container(
