@@ -750,7 +750,14 @@
 
     async function draw() {
       const d3 = await import('https://cdn.jsdelivr.net/npm/d3@7/+esm')
+      // fallback width if not yet mounted
+      let width = svgWrap.clientWidth - 16
+      const height = 440
+      if (!width || width < 100) width = 800
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
+
       const members = state.members
+      if (!members.length) return
       const nodes = members.map((m) => ({ id: m.id, member: m }))
 
       function commonTags(a, b) {
@@ -768,11 +775,18 @@
           if (common.length) links.push({ source: members[i].id, target: members[j].id, tags: common })
         }
       }
+      if (!links.length) {
+        const msg = d3.select(svg).append('g')
+        msg.append('text')
+          .attr('x', 12)
+          .attr('y', 24)
+          .attr('fill', '#6b7280')
+          .text('共通タグのある組み合わせがありません。タグを選択してみてください。')
+        return
+      }
 
       svg.innerHTML = ''
-      const width = svgWrap.clientWidth - 16
-      const height = 440
-      svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
+      // viewBox set earlier with fallback width
 
       const colorScale = d3.scaleSequential(d3.interpolateCividis).domain([1, Math.max(2, d3.max(links, d => d.tags.length) || 2)])
       const linkWidth = d3.scaleLinear().domain([1, Math.max(2, d3.max(links, d => d.tags.length) || 2)]).range([1, 6])
@@ -885,9 +899,7 @@
       const words = collectCoreValues()
 
       svg.innerHTML = ''
-      const width = svgWrap.clientWidth - 16
-      const height = 440
-      svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
+      // viewBox set earlier with fallback width
 
       // frequency map
       const freq = new Map()
