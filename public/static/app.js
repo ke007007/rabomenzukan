@@ -272,7 +272,7 @@
         try { el.value = v } catch (_) { el.setAttribute('value', v) }
       } else if (typeof v === 'boolean') {
         // Properly handle boolean attributes (e.g., disabled, checked)
-        try { (el as any)[k] = v } catch(_) {}
+        try { el[k] = v } catch(_) {}
         if (v) el.setAttribute(k, '')
         else el.removeAttribute(k)
       } else {
@@ -669,7 +669,9 @@
     }
     const m = state.formDraft
 
-    let imageMode = 'url' // or 'upload'
+    // persist image mode per draft to avoid reset on re-render
+    if (!m._imageMode) m._imageMode = 'url'
+    let imageMode = m._imageMode // 'url' or 'upload'
 
     const field = (key, label, type = 'text') =>
       h(
@@ -703,7 +705,7 @@
             type: 'text',
             placeholder: 'https://...jpg',
             class: 'w-full border border-gray-300 rounded-lg px-3 py-2',
-            value: m.imageUrl,
+            value: m.imageUrl || '',
             onInput: (e) => {
               m.imageUrl = e.target.value
               update()
@@ -714,19 +716,39 @@
             accept: 'image/*',
             class: 'w-full',
             onChange: async (e) => {
-              const file = e.target.files?.[0]
-              if (!file) return
+              const file = e.target.files && e.target.files.length ? e.target.files[0] : null
+              if (!file) {
+                alert('ファイルが選択されていません')
+                return
+              }
+              if (!(file instanceof Blob)) {
+                alert('不正なファイルです')
+                return
+              }
               // 軽いバリデーション（2MB超は警告）
               if (file.size > 2 * 1024 * 1024) {
                 alert('画像サイズが大きいです（2MB以下を推奨）。このまま続行します。')
               }
               const reader = new FileReader()
               reader.onload = () => {
-                m.imageUrl = reader.result
-                update()
+                try {
+                  m.imageUrl = reader.result
+                  update()
+                } catch (err) {
+                  console.error('[image read] failed to assign result', err)
+                  alert('画像の読み込みに失敗しました（結果の適用に失敗）')
+                }
               }
-              reader.onerror = () => alert('画像の読み込みに失敗しました')
-              reader.readAsDataURL(file)
+              reader.onerror = (ev) => {
+                console.error('[image read] error', ev)
+                alert('画像の読み込みに失敗しました')
+              }
+              try {
+                reader.readAsDataURL(file)
+              } catch (err) {
+                console.error('[image read] readAsDataURL failed', err)
+                alert('画像の読み込みに失敗しました（readエラー）')
+              }
             },
           }),
       h('div', { class: 'mt-2' },
@@ -744,6 +766,7 @@
             'px-3 py-1 rounded-md text-sm ' +
             (imageMode === mode ? 'bg-sky-500 text-white' : 'bg-gray-200 hover:bg-gray-300'),
           onClick: () => {
+            m._imageMode = mode
             imageMode = mode
             update()
           },
@@ -788,8 +811,8 @@
       field('whyLab', 'どうしてラボへ？', 'textarea'),
       field('whatToDo', 'ラボでやってみたいこと', 'textarea'),
       h('div', { class: 'flex gap-2 mt-4 items-center' },
-        h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: onSubmit, disabled: !!state.saving }, state.saving ? '更新中…' : (isEdit ? '更新' : '登録')),
-        h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: () => { if (state.saving) return; state.formDraft = null; history.back() }, disabled: !!state.saving }, 'キャンセル'),
+        h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: onSubmit, disabled: state.saving === true }, state.saving ? '更新中…' : (isEdit ? '更新' : '登録')),
+        h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: () => { if (state.saving) return; state.formDraft = null; history.back() }, disabled: state.saving === true }, 'キャンセル'),
         state.saving ? h('span', { class: 'text-xs text-gray-500' }, 'サーバに保存中です…') : null,
       ),
     )
