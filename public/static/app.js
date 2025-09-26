@@ -219,20 +219,14 @@
   })
 
   // State management (in-memory only)
-  function init() {
-    state.members = seedMembers.map((m) => ({ ...m }))
-    // Demo: mix of members with and without images
-    // royalty-free sample avatars
-    const sampleAvatars = [
-      'https://images.unsplash.com/photo-1502685104226-ee32379fefbe?q=80&w=256&auto=format&fit=facearea&facepad=2&crop=faces',
-      'https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=256&auto=format&fit=facearea&facepad=2&crop=faces',
-      'https://images.unsplash.com/photo-1547425260-76bcadfb4f2c?q=80&w=256&auto=format&fit=facearea&facepad=2&crop=faces'
-    ]
-    state.members.forEach((m, i) => {
-      if (i % 2 === 0) m.imageUrl = sampleAvatars[i % sampleAvatars.length]
-    })
-    Debug.log('[Init] members', state.members.length)
-    render()
+  async function init() {
+    try {
+      await api.refreshAll()
+    } catch (e) {
+      Debug.error('[Init] failed, fallback to seed', e)
+      state.members = injectAvatars(seedMembers.map((m) => ({ ...m })))
+      render()
+    }
   }
 
   // Header
@@ -468,11 +462,15 @@
       'button',
       {
         class: 'text-xs px-2 py-1 rounded-md bg-red-100 text-red-700 hover:bg-red-200',
-        onClick: (e) => {
+        onClick: async (e) => {
           e.stopPropagation()
-          if (confirm('削除しますか？')) {
-            state.members = state.members.filter((x) => x.id !== m.id)
-            update()
+          if (!confirm('削除しますか？')) return
+          try {
+            await api.deleteMember(m.id)
+            await api.refreshAll()
+          } catch (err) {
+            Debug.error('[Delete] failed', err)
+            alert('削除に失敗しました')
           }
         },
       },
@@ -645,19 +643,20 @@
       )
     }
 
-    const onSubmit = () => {
+    const onSubmit = async () => {
       if (!m.name || !m.preferredName) {
         alert('氏名と呼ばれたい名前は必須です')
         return
       }
-      if (isEdit) {
-        const idx = state.members.findIndex((x) => x.id === m.id)
-        state.members[idx] = m
-      } else {
-        state.members.unshift(m)
+      try {
+        if (isEdit) await api.updateMember(m.id, m)
+        else await api.createMember(m)
+        await api.refreshAll()
+        navigate('/')
+      } catch (err) {
+        Debug.error('[Save] failed', err)
+        alert('保存に失敗しました')
       }
-      navigate('/')
-      update()
     }
 
     return container(
@@ -697,7 +696,9 @@
       },
     })
 
-    const quickAdd = Array.from(new Set(state.members.flatMap((m) => (type === 'interest' ? (m.interestTags || []) : type === 'involvement' ? (m.involvementTags || []) : type === 'area' ? (m.areaTags || []) : []))))
+    const quickAdd = (state.tags && state.tags[type] && state.tags[type].length
+      ? state.tags[type]
+      : Array.from(new Set(state.members.flatMap((m) => (type === 'interest' ? (m.interestTags || []) : type === 'involvement' ? (m.involvementTags || []) : type === 'area' ? (m.areaTags || []) : [])))))
     const chips = () =>
       h(
         'div',
@@ -754,6 +755,10 @@
 
   // Dialogue page
   function DialoguePage() {
+    // ensure tags are refreshed when entering this page (for quick add in a future step)
+    if (!state.tags || !(state.tags.interest && state.tags.involvement && state.tags.area)) {
+      api.refreshAll().catch(()=>{})
+    }
     const nameInput = h('input', {
       class: 'border border-gray-300 rounded-lg px-3 py-2 w-full md:w-64',
       placeholder: 'あなたの名前（必須）',
@@ -808,14 +813,20 @@
           ),
           h('div', { class: 'flex items-center gap-2' },
             h('input', { class: 'border border-gray-300 rounded-lg px-3 py-2 flex-1', placeholder: '大切にしていること（キーワード）' }),
-            h('button', { class: 'bg-amber-400 text-white px-3 py-2 rounded-lg hover:bg-amber-500', onClick: function () {
+            h('button', { class: 'bg-amber-400 text-white px-3 py-2 rounded-lg hover:bg-amber-500', onClick: async function () {
               const inp = this.previousSibling
               const v = inp.value.trim()
               if (!v) return
               if (!state.operatorName) return alert('先にあなたの名前を入力してください')
-              m.coreValuesTags.push({ value: v, author: state.operatorName })
-              inp.value = ''
-              update()
+              try {
+                await api.addCoreValue(m.id, v, state.operatorName)
+                m.coreValuesTags.push({ value: v, author: state.operatorName })
+                inp.value = ''
+                update()
+              } catch (err) {
+                Debug.error('[CoreValue add] failed', err)
+                alert('追加に失敗しました')
+              }
             } }, '追加'),
           ),
           h('div', { class: 'flex flex-wrap gap-2' },
