@@ -1,0 +1,9 @@
+name = "webapp"
+compatibility_date = "2025-09-25"
+pages_build_output_dir = "./dist"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "webapp-production"
+database_id = "3f9e4129-6d5e-4948-8808-2927bf458caf"

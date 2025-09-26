@@ -6,12 +6,11 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  // D1 production binding. For local dev, wrangler maps to local SQLite when using --local
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "webapp-production",
-      "database_id": "3f9e4129-6d5e-4948-8808-2927bf458caf"
+      "database_id": ""
     }
   ]
 }
