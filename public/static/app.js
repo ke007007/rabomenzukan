@@ -18,7 +18,7 @@
     },
   }
 
-  // Sample seed data
+  // Sample seed data（5名、タグに一部共通を持たせる）
   const seedMembers = [
     {
       id: '1',
@@ -48,6 +48,51 @@
       coreValuesTags: [
         { value: '共創', author: 'けいた' },
         { value: '誠実', author: 'Aさん' },
+      ],
+    },
+    {
+      id: '3',
+      name: '鈴木 一郎',
+      preferredName: 'いちろう',
+      imageUrl: '',
+      occupation: '教育支援 / 文化企画',
+      interestTags: ['教育', '文化', '音楽'],
+      involvementTags: ['メンター', '参加者'],
+      whyLab: '学びの土壌を広げたい',
+      whatToDo: '文化×教育のプロジェクトを立ち上げる',
+      coreValuesTags: [
+        { value: '挑戦', author: 'Bさん' },
+        { value: '共創', author: 'Bさん' },
+      ],
+    },
+    {
+      id: '4',
+      name: '高橋 真由',
+      preferredName: 'まゆ',
+      imageUrl: '',
+      occupation: '組織開発 / コミュニティ',
+      interestTags: ['組織開発', 'サステナビリティ', 'コミュニティ'],
+      involvementTags: ['ラボ運営'],
+      whyLab: '実験と検証の場を作る',
+      whatToDo: 'コミュニティの評価指標づくり',
+      coreValuesTags: [
+        { value: '学び', author: 'Cさん' },
+        { value: '誠実', author: 'Cさん' },
+      ],
+    },
+    {
+      id: '5',
+      name: '田中 健',
+      preferredName: 'けん',
+      imageUrl: '',
+      occupation: '音楽 / テクノロジー',
+      interestTags: ['音楽', 'テクノロジー', '教育'],
+      involvementTags: ['参加者'],
+      whyLab: 'テクノロジーで表現を拡張したい',
+      whatToDo: '音楽×AIのセッション',
+      coreValuesTags: [
+        { value: '探究', author: 'Dさん' },
+        { value: 'つながり', author: 'Dさん' },
       ],
     },
   ]
@@ -899,7 +944,11 @@
       const words = collectCoreValues()
 
       svg.innerHTML = ''
-      // viewBox set earlier with fallback width
+      // set viewBox with fallback width
+      let width = svgWrap.clientWidth - 16
+      const height = 440
+      if (!width || width < 100) width = 800
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`)
 
       // frequency map
       const freq = new Map()
