@@ -15,6 +15,7 @@
       q: '',
       interest: new Set(),
       involvement: new Set(),
+      area: new Set(),
     },
   }
 
@@ -28,6 +29,7 @@
       occupation: 'コミュニティ運営 / DX支援',
       interestTags: ['組織開発', '教育', '音楽'],
       involvementTags: ['ラボ運営', 'メンター'],
+      areaTags: ['京都', '関西'],
       whyLab: '多様な人と学び合う場を作りたい',
       whatToDo: '相互学習の仕組みづくりを実験',
       coreValuesTags: [
@@ -43,6 +45,7 @@
       occupation: '農業 / アート',
       interestTags: ['農業', 'サステナビリティ', '文化'],
       involvementTags: ['参加者'],
+      areaTags: ['千葉', '関東'],
       whyLab: '地域に根差した実践を広げたい',
       whatToDo: '虹ファームの仲間を増やす',
       coreValuesTags: [
@@ -58,6 +61,7 @@
       occupation: '教育支援 / 文化企画',
       interestTags: ['教育', '文化', '音楽'],
       involvementTags: ['メンター', '参加者'],
+      areaTags: ['東京', '関東'],
       whyLab: '学びの土壌を広げたい',
       whatToDo: '文化×教育のプロジェクトを立ち上げる',
       coreValuesTags: [
@@ -73,6 +77,7 @@
       occupation: '組織開発 / コミュニティ',
       interestTags: ['組織開発', 'サステナビリティ', 'コミュニティ'],
       involvementTags: ['ラボ運営'],
+      areaTags: ['大阪', '関西'],
       whyLab: '実験と検証の場を作る',
       whatToDo: 'コミュニティの評価指標づくり',
       coreValuesTags: [
@@ -88,6 +93,7 @@
       occupation: '音楽 / テクノロジー',
       interestTags: ['音楽', 'テクノロジー', '教育'],
       involvementTags: ['参加者'],
+      areaTags: ['海外/バンコク'],
       whyLab: 'テクノロジーで表現を拡張したい',
       whatToDo: '音楽×AIのセッション',
       coreValuesTags: [
@@ -304,12 +310,11 @@
 
   // Helper: Tag pill
   function TagPill(text, type = 'interest') {
-    const color =
-      type === 'interest'
-        ? 'bg-sky-100 text-sky-800'
-        : type === 'involvement'
-        ? 'bg-blue-100 text-blue-800'
-        : 'bg-amber-100 text-amber-800'
+    let color = 'bg-gray-100 text-gray-800'
+    if (type === 'interest') color = 'bg-sky-100 text-sky-800'
+    else if (type === 'involvement') color = 'bg-blue-100 text-blue-800'
+    else if (type === 'area') color = 'bg-emerald-100 text-emerald-800'
+    else if (type === 'core') color = 'bg-amber-100 text-amber-800'
     return h(
       'span',
       { class: `text-xs font-medium px-2 py-1 rounded-full ${color} whitespace-nowrap` },
@@ -333,6 +338,7 @@
 
     const allInterest = Array.from(new Set(state.members.flatMap((m) => m.interestTags)))
     const allInvolvement = Array.from(new Set(state.members.flatMap((m) => m.involvementTags)))
+    const allArea = Array.from(new Set(state.members.flatMap((m) => m.areaTags || [])))
 
     const filterSection = h(
       'div',
@@ -340,6 +346,7 @@
       h('div', { class: 'text-sm font-bold text-gray-700' }, 'タグフィルター'),
       tagFilterRow('興味関心タグ', allInterest, 'interest'),
       tagFilterRow('関わりタグ', allInvolvement, 'involvement'),
+      tagFilterRow('活動エリアタグ', allArea, 'area'),
     )
 
     function tagFilterRow(title, tags, type) {
@@ -408,6 +415,7 @@
     const q = state.filter.q.toLowerCase()
     const iSel = state.filter.interest
     const invSel = state.filter.involvement
+    const areaSel = state.filter.area
 
     return state.members.filter((m) => {
       const textMatch = [m.name, m.preferredName, m.occupation]
@@ -416,7 +424,8 @@
         .includes(q)
       const interestOk = Array.from(iSel).every((t) => m.interestTags.includes(t))
       const invOk = Array.from(invSel).every((t) => m.involvementTags.includes(t))
-      return textMatch && interestOk && invOk
+      const areaOk = Array.from(areaSel).every((t) => (m.areaTags || []).includes(t))
+      return textMatch && interestOk && invOk && areaOk
     })
   }
 
@@ -476,7 +485,7 @@
       'div',
       {
         class:
-          'bg-white rounded-lg shadow-md md:shadow-lg p-3 md:p-4 hover:-translate-y-0.5 md:hover:-translate-y-1 transition-transform cursor-pointer flex flex-col gap-2 md:gap-3'
+          'bg-white rounded-lg shadow-md md:shadow-lg p-3 md:p-4 hover:-translate-y-0.5 md:hover:-translate-y-1 transition-transform cursor-pointer flex flex-col gap-2 md:gap-3',
         onClick: openDetail,
       },
       h('div', { class: 'flex items-center gap-3' },
@@ -489,6 +498,7 @@
       h('div', { class: 'space-y-2' },
         h('div', {}, tagPreview(m.interestTags, 'interest')),
         h('div', {}, tagPreview(m.involvementTags, 'involvement')),
+        h('div', {}, tagPreview(m.areaTags || [], 'area')),
         h('div', { class: 'text-xs text-gray-600' }, '普段やっていること: ' + snippet(m.occupation)),
         h('div', { class: 'text-xs text-gray-600' }, 'どうしてラボへ？: ' + snippet(m.whyLab)),
         h('div', { class: 'text-xs text-gray-600' }, 'やってみたいこと: ' + snippet(m.whatToDo)),
@@ -528,6 +538,7 @@
       section('普段やっていること', h('div', { class: 'text-sm md:text-base leading-relaxed' }, m.occupation)),
       section('興味関心', h('div', { class: 'flex flex-wrap gap-2' }, m.interestTags.map((t) => TagPill(t, 'interest')))),
       section('関わり方', h('div', { class: 'flex flex-wrap gap-2' }, m.involvementTags.map((t) => TagPill(t, 'involvement')))),
+      section('活動エリア', h('div', { class: 'flex flex-wrap gap-2' }, (m.areaTags || []).map((t) => TagPill(t, 'area')))),
       section('どうしてラボへ？', h('div', { class: 'text-sm md:text-base leading-relaxed' }, m.whyLab)),
       section('ラボでやってみたいこと', h('div', { class: 'text-sm md:text-base leading-relaxed' }, m.whatToDo)),
       section('大切にしていること', h('div', { class: 'flex flex-wrap gap-2' }, m.coreValuesTags.map((cv) => TagPill(`${cv.value} / ${cv.author}`, 'core')))),
@@ -559,6 +570,7 @@
           whyLab: '',
           whatToDo: '',
           coreValuesTags: [],
+          areaTags: [],
         }
 
     let imageMode = 'url' // or 'upload'
@@ -654,9 +666,10 @@
       field('preferredName', '呼ばれたい名前'),
       h('div', { class: 'space-y-1' }, h('label', { class: 'text-xs font-bold text-gray-600' }, 'プロフィール画像'), imageTabs, h('div', { class: 'text-xs text-gray-500' }, '推奨: 正方形 256×256〜512×512（最大1MB目安）')),
       field('occupation', '普段やっていること', 'textarea'),
-      h('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-4' },
+      h('div', { class: 'grid grid-cols-1 md:grid-cols-3 gap-4' },
         TagInput('興味関心タグ', m.interestTags, 'interest'),
         TagInput('関わりタグ', m.involvementTags, 'involvement'),
+        TagInput('活動エリアタグ', m.areaTags, 'area'),
       ),
       field('whyLab', 'どうしてラボへ？', 'textarea'),
       field('whatToDo', 'ラボでやってみたいこと', 'textarea'),
@@ -684,7 +697,7 @@
       },
     })
 
-    const quickAdd = Array.from(new Set(state.members.flatMap((m) => (type === 'interest' ? m.interestTags : m.involvementTags))))
+    const quickAdd = Array.from(new Set(state.members.flatMap((m) => (type === 'interest' ? (m.interestTags || []) : type === 'involvement' ? (m.involvementTags || []) : type === 'area' ? (m.areaTags || []) : []))))
     const chips = () =>
       h(
         'div',
@@ -692,7 +705,7 @@
         list.map((t, idx) =>
           h(
             'span',
-            { class: 'inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full ' + (type === 'interest' ? 'bg-sky-100 text-sky-800' : 'bg-blue-100 text-blue-800') },
+            { class: 'inline-flex items-center gap-2 text-xs px-2 py-1 rounded-full ' + (type === 'interest' ? 'bg-sky-100 text-sky-800' : type === 'involvement' ? 'bg-blue-100 text-blue-800' : type === 'area' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800') },
             t,
             h(
               'button',
@@ -845,8 +858,10 @@
 
   // Correlation page (network graph with D3 force, filtered by selected tags)
   function CorrelationPage() {
-    const allTags = Array.from(new Set(state.members.flatMap((m) => [...m.interestTags, ...m.involvementTags])))
-    const selected = new Set()
+    const interestAll = Array.from(new Set(state.members.flatMap((m) => m.interestTags)))
+    const involvementAll = Array.from(new Set(state.members.flatMap((m) => m.involvementTags)))
+    const areaAll = Array.from(new Set(state.members.flatMap((m) => m.areaTags || [])))
+    const selected = { interest: new Set(), involvement: new Set(), area: new Set() }
 
     let rafId = 0
     const scheduleDraw = () => {
@@ -858,27 +873,48 @@
 
     const panel = h(
       'div',
-      { class: 'flex flex-wrap gap-2 mb-3' },
-      allTags.map((t) =>
-        h(
-          'button',
-          {
-            class: 'px-2 py-1 rounded-lg text-xs bg-gray-100 hover:bg-gray-200',
-            onClick: function () {
-              if (selected.has(t)) selected.delete(t)
-              else selected.add(t)
-              this.classList.toggle('bg-sky-500')
-              this.classList.toggle('text-white')
-              Debug.log('[Correlation] selected tags', Array.from(selected))
-              scheduleDraw()
-            },
-          },
-          t,
-        ),
-      ),
+      { class: 'space-y-2 mb-3' },
+      h('div', { class: 'text-xs font-bold text-gray-600' }, 'タグを選択（複数可）'),
+      tagRow('興味関心タグ', interestAll, 'interest', 'bg-sky-500'),
+      tagRow('関わりタグ', involvementAll, 'involvement', 'bg-blue-500'),
+      tagRow('活動エリアタグ', areaAll, 'area', 'bg-emerald-500'),
     )
 
+    function tagRow(title, tags, type, activeBg) {
+      return h(
+        'div',
+        {},
+        h('div', { class: 'text-xs font-bold text-gray-600 mb-1' }, title),
+        h(
+          'div',
+          { class: 'flex flex-wrap gap-2' },
+          tags.map((t) => h(
+            'button',
+            {
+              class: 'px-2 py-1 rounded-lg text-xs border bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-300',
+              onClick: function () {
+                const set = selected[type]
+                if (set.has(t)) set.delete(t)
+                else set.add(t)
+                this.classList.toggle(activeBg)
+                this.classList.toggle('text-white')
+                this.classList.toggle('border-transparent')
+                Debug.log('[Correlation] selected', type, Array.from(set))
+                scheduleDraw()
+              },
+            },
+            t,
+          ))
+        )
+      )
+    }
+
     const debugOn = (localStorage.getItem('debug') === '1')
+    const legend = h('div', { class: 'flex flex-wrap items-center gap-3 text-xs mb-2' },
+      h('div', { class: 'flex items-center gap-2' }, h('span', { class: 'w-6 h-0.5 bg-sky-500 inline-block' }), '興味関心'),
+      h('div', { class: 'flex items-center gap-2' }, h('span', { class: 'w-6 h-0.5 bg-blue-500 inline-block' }), '関わり方'),
+      h('div', { class: 'flex items-center gap-2' }, h('span', { class: 'w-6 h-0.5 bg-emerald-500 inline-block' }), '活動エリア')
+    )
     const svgWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 relative ' + (debugOn ? 'debug-svg-wrap' : 'overflow-hidden') })
     const svg = h('svg', { width: '100%', height: 480 })
     svgWrap.appendChild(svg)
@@ -922,19 +958,23 @@
       const nodes = members.map((m) => ({ id: m.id, member: m }))
 
       function commonTags(a, b) {
-        const setA = new Set([...a.interestTags, ...a.involvementTags])
-        const setB = new Set([...b.interestTags, ...b.involvementTags])
-        let common = [...setA].filter((x) => setB.has(x))
-        if (selected.size) common = common.filter((t) => selected.has(t))
-        return common
+        const ints = a.interestTags.filter((t) => b.interestTags.includes(t))
+        const invs = a.involvementTags.filter((t) => b.involvementTags.includes(t))
+        const areas = (a.areaTags || []).filter((t) => (b.areaTags || []).includes(t))
+        const useInts = selected.interest.size ? ints.filter((t) => selected.interest.has(t)) : []
+        const useInvs = selected.involvement.size ? invs.filter((t) => selected.involvement.has(t)) : []
+        const useAreas = selected.area.size ? areas.filter((t) => selected.area.has(t)) : []
+        return { interest: useInts, involvement: useInvs, area: useAreas }
       }
 
       const links = []
-      if (selected.size > 0) {
+      const anySelected = selected.interest.size + selected.involvement.size + selected.area.size
+      if (anySelected > 0) {
         for (let i = 0; i < members.length; i++) {
           for (let j = i + 1; j < members.length; j++) {
-            const common = commonTags(members[i], members[j])
-            if (common.length) links.push({ source: members[i].id, target: members[j].id, tags: common })
+            const by = commonTags(members[i], members[j])
+            const total = by.interest.length + by.involvement.length + by.area.length
+            if (total) links.push({ source: members[i].id, target: members[j].id, by, total })
           }
         }
       }
@@ -945,25 +985,27 @@
 
       if (!links.length) {
         const msg = d3.select(svg).append('g')
-        .attr('data-debug', 'true')
-        .attr('data-links', 0)
+          .attr('data-debug', 'true')
+          .attr('data-links', 0)
         msg
           .append('text')
           .attr('x', 12)
           .attr('y', 24)
           .attr('fill', '#6b7280')
-          .text('共通タグのある組み合わせがありません。タグを選択してみてください。')
-        return
+          .text('タグを選択すると、共通タグのあるつながりを表示します。')
       }
 
-      const colorScale = d3.scaleSequential(d3.interpolateCividis).domain([
-        1,
-        Math.max(2, d3.max(links, (d) => d.tags.length) || 2),
-      ])
       const linkWidth = d3
         .scaleLinear()
-        .domain([1, Math.max(2, d3.max(links, (d) => d.tags.length) || 2)])
+        .domain([1, Math.max(2, d3.max(links, (d) => d.total) || 2)])
         .range([1, 6])
+      const catColor = (d) => {
+        const ints = d.by.interest.length, invs = d.by.involvement.length, areas = d.by.area.length
+        if (ints === 0 && invs === 0 && areas === 0) return '#9ca3af'
+        if (ints >= invs && ints >= areas) return '#0ea5e9' // sky-500
+        if (invs >= ints && invs >= areas) return '#3b82f6' // blue-500
+        return '#10b981' // emerald-500
+      }
 
       const simulation = d3
         .forceSimulation(nodes)
@@ -994,11 +1036,11 @@
         .data(links)
         .enter()
         .append('line')
-        .attr('stroke', (d) => colorScale(d.tags.length))
-        .attr('stroke-width', (d) => linkWidth(d.tags.length))
+        .attr('stroke', (d) => catColor(d))
+        .attr('stroke-width', (d) => linkWidth(d.total))
         .attr('stroke-opacity', 0.85)
         .on('mousemove', function (event, d) {
-          tooltip.textContent = d.tags.join(', ')
+          tooltip.innerHTML = `[興味関心] ${(d.by.interest.join(', ')||'-')}  ` + ` [関わり方] ${(d.by.involvement.join(', ')||'-')}  ` + ` [活動エリア] ${(d.by.area.join(', ')||'-')}`
           tooltip.style.left = event.offsetX + 10 + 'px'
           tooltip.style.top = event.offsetY + 10 + 'px'
           tooltip.classList.remove('hidden')
@@ -1103,6 +1145,7 @@
     const wrap = container(
       h('h1', { class: 'text-2xl font-bold text-gray-900' }, 'ラボメン相関図（ネットワーク）'),
       panel,
+      legend,
       svgWrap,
     )
 
@@ -1114,6 +1157,11 @@
   // Core values word cloud (force layout, zoom/drag, size by frequency)
   function CoreValuesPage() {
     const debugOn = (localStorage.getItem('debug') === '1')
+    const legend = h('div', { class: 'flex flex-wrap items-center gap-3 text-xs mb-2' },
+      h('div', { class: 'flex items-center gap-2' }, h('span', { class: 'w-6 h-0.5 bg-sky-500 inline-block' }), '興味関心'),
+      h('div', { class: 'flex items-center gap-2' }, h('span', { class: 'w-6 h-0.5 bg-blue-500 inline-block' }), '関わり方'),
+      h('div', { class: 'flex items-center gap-2' }, h('span', { class: 'w-6 h-0.5 bg-emerald-500 inline-block' }), '活動エリア')
+    )
     const svgWrap = h('div', { class: 'bg-white rounded-lg shadow p-2 relative ' + (debugOn ? 'debug-svg-wrap' : 'overflow-hidden') })
     const svg = h('svg', { width: '100%', height: 480 })
     svgWrap.appendChild(svg)
