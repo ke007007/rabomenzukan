@@ -20,6 +20,10 @@
       involvement: new Set(),
       area: new Set(),
     },
+    ui: {
+      listFiltersCollapsed: false,
+    },
+    dialogueSearchQ: '',
   }
 
   // Sample seed data（5名、タグに一部共通を持たせる）
@@ -427,13 +431,18 @@
     const allInvolvement = Array.from(new Set(state.members.flatMap((m) => m.involvementTags)))
     const allArea = Array.from(new Set(state.members.flatMap((m) => m.areaTags || [])))
 
+    const collapsed = !!(state.ui && state.ui.listFiltersCollapsed)
+    const toggleFilters = () => { state.ui.listFiltersCollapsed = !collapsed; update() }
     const filterSection = h(
       'div',
       { class: 'space-y-3' },
-      h('div', { class: 'text-sm font-bold text-gray-700' }, 'タグフィルター'),
-      tagFilterRow('興味関心タグ', allInterest, 'interest'),
-      tagFilterRow('関わりタグ', allInvolvement, 'involvement'),
-      tagFilterRow('活動エリアタグ', allArea, 'area'),
+      h('div', { class: 'flex items-center justify-between' },
+        h('div', { class: 'text-sm font-bold text-gray-700' }, 'タグフィルター'),
+        h('button', { class: 'text-xs px-2 py-1 rounded-md border border-gray-300 bg-white hover:bg-gray-50', onClick: toggleFilters }, collapsed ? '表示' : '非表示')
+      ),
+      collapsed ? null : tagFilterRow('興味関心タグ', allInterest, 'interest'),
+      collapsed ? null : tagFilterRow('関わりタグ', allInvolvement, 'involvement'),
+      collapsed ? null : tagFilterRow('活動エリアタグ', allArea, 'area'),
     )
 
     function tagFilterRow(title, tags, type) {
@@ -626,12 +635,12 @@
           h('div', { class: 'text-sm md:text-base text-gray-600 leading-tight' }, m.preferredName),
         ),
       ),
-      section('普段やっていること', h('div', { class: 'text-sm md:text-base leading-relaxed' }, m.occupation)),
+      section('普段やっていること', h('div', { class: 'text-sm md:text-base leading-relaxed whitespace-pre-line' }, m.occupation)),
       section('興味関心', h('div', { class: 'flex flex-wrap gap-2' }, m.interestTags.map((t) => TagPill(t, 'interest')))),
       section('関わり方', h('div', { class: 'flex flex-wrap gap-2' }, m.involvementTags.map((t) => TagPill(t, 'involvement')))),
       section('活動エリア', h('div', { class: 'flex flex-wrap gap-2' }, (m.areaTags || []).map((t) => TagPill(t, 'area')))),
-      section('どうしてラボへ？', h('div', { class: 'text-sm md:text-base leading-relaxed' }, m.whyLab)),
-      section('ラボでやってみたいこと', h('div', { class: 'text-sm md:text-base leading-relaxed' }, m.whatToDo)),
+      section('どうしてラボへ？', h('div', { class: 'text-sm md:text-base leading-relaxed whitespace-pre-line' }, m.whyLab)),
+      section('ラボでやってみたいこと', h('div', { class: 'text-sm md:text-base leading-relaxed whitespace-pre-line' }, m.whatToDo)),
       section('大切にしていること', h('div', { class: 'flex flex-wrap gap-2' }, m.coreValuesTags.map((cv) => TagPill(`${cv.value} / ${cv.author}`, 'core')))),
     )
   }
@@ -919,10 +928,20 @@
       onInput: (e) => (state.operatorName = e.target.value),
     })
 
+    const searchInput = h('input', {
+      class: 'border border-gray-300 rounded-lg px-3 py-2 w-full md:w-64',
+      placeholder: '氏名/呼ばれたい名前で検索',
+      value: state.dialogueSearchQ || '',
+      onInput: (e) => { state.dialogueSearchQ = e.target.value; update() }
+    })
+
+    const dQ = (state.dialogueSearchQ || '').toLowerCase()
+    const filtered = state.members.filter((m) => [m.name, m.preferredName].join(' ').toLowerCase().includes(dQ))
+
     const list = h(
       'div',
       { class: 'grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3' },
-      state.members.map((m) =>
+      filtered.map((m) =>
         h(
           'button',
           {
@@ -959,9 +978,9 @@
             h('summary', { class: 'text-sm font-bold text-gray-700 cursor-pointer' }, 'プロフィール'),
             h('div', { class: 'text-sm text-gray-600 space-y-1 mt-2' },
               h('div', {}, '呼ばれたい名前: ' + m.preferredName),
-              h('div', {}, '普段やっていること: ' + m.occupation),
-              h('div', {}, 'どうしてラボへ？: ' + m.whyLab),
-              h('div', {}, 'やってみたいこと: ' + m.whatToDo),
+              h('div', { class: 'whitespace-pre-line' }, '普段やっていること: ' + m.occupation),
+              h('div', { class: 'whitespace-pre-line' }, 'どうしてラボへ？: ' + m.whyLab),
+              h('div', { class: 'whitespace-pre-line' }, 'やってみたいこと: ' + m.whatToDo),
             ),
           ),
           (function(){
@@ -1023,6 +1042,7 @@
       h('h1', { class: 'text-2xl font-bold text-gray-900' }, 'ラボメン対話'),
       h('div', { class: 'mt-3 space-y-3' },
         h('div', {}, h('label', { class: 'text-xs font-bold text-gray-600 mr-2' }, 'あなたの名前'), nameInput),
+        h('div', {}, h('label', { class: 'text-xs font-bold text-gray-600 mr-2' }, '参加者検索'), searchInput),
         h('div', { class: 'text-sm font-bold text-gray-700' }, '参加者を選択'),
         list,
         h('div', { class: 'mt-4 space-y-2' }, cards),
