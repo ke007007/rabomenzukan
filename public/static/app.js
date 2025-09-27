@@ -818,8 +818,8 @@
       field('whyLab', 'どうしてラボへ？', 'textarea'),
       field('whatToDo', 'ラボでやってみたいこと', 'textarea'),
       h('div', { class: 'flex gap-2 mt-4 items-center' },
-        h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: onSubmit, disabled: state.saving === true }, state.saving ? '更新中…' : (isEdit ? '更新' : '登録')),
-        h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: () => { if (state.saving) return; state.formDraft = null; history.back() }, disabled: state.saving === true }, 'キャンセル'),
+        h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: onSubmit, disabled: !!state.saving }, state.saving ? '更新中…' : (isEdit ? '更新' : '登録')),
+        h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: () => { if (state.saving) return; state.formDraft = null; history.back() }, disabled: !!state.saving }, 'キャンセル'),
         state.saving ? h('span', { class: 'text-xs text-gray-500' }, 'サーバに保存中です…') : null,
       ),
     )
