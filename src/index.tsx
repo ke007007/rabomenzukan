@@ -236,14 +236,25 @@ app.delete('/api/member/:id/core-values', async (c) => {
   return c.json({ ok: true })
 })
 
-// GET /api/tags?category=interest|involvement|area
+// GET /api/tags?category=interest|involvement|area&usedOnly=1
 app.get('/api/tags', async (c) => {
   const db = c.env.DB
   const url = new URL(c.req.url)
   const category = url.searchParams.get('category')
-  let stmt = `SELECT id, name, category FROM tags`
-  if (category) stmt += ` WHERE category = ?`
-  const res = category ? await db.prepare(stmt).bind(category).all() : await db.prepare(stmt).all()
+  const usedOnly = url.searchParams.get('usedOnly') === '1'
+  let stmt: string
+  let bind: any[] = []
+  if (usedOnly) {
+    stmt = `SELECT t.id, t.name, t.category
+            FROM tags t
+            WHERE ${category ? 't.category = ? AND ' : ''}
+                  EXISTS (SELECT 1 FROM member_tags mt WHERE mt.tag_id = t.id)`
+    if (category) bind.push(category)
+  } else {
+    stmt = `SELECT id, name, category FROM tags${category ? ' WHERE category = ?' : ''}`
+    if (category) bind.push(category)
+  }
+  const res = await db.prepare(stmt).bind(...bind).all()
   return c.json(res.results || [])
 })
 

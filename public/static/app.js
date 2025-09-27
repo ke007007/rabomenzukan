@@ -161,8 +161,11 @@
         await fetch(`/api/member/${encodeURIComponent(id)}/core-values?${qs}`, { method: 'DELETE' })
       )
     },
-    async getTags(category) {
-      const url = category ? `/api/tags?category=${encodeURIComponent(category)}` : '/api/tags'
+    async getTags(category, usedOnly = true) {
+      const usp = new URLSearchParams()
+      if (category) usp.set('category', category)
+      if (usedOnly) usp.set('usedOnly', '1')
+      const url = '/api/tags' + (usp.toString() ? `?${usp.toString()}` : '')
       return this._json(await fetch(url))
     },
     async refreshAll() {
@@ -876,7 +879,12 @@
 
     const quickAdd = (state.tags && state.tags[type] && state.tags[type].length
       ? state.tags[type]
-      : Array.from(new Set(state.members.flatMap((m) => (type === 'interest' ? (m.interestTags || []) : type === 'involvement' ? (m.involvementTags || []) : type === 'area' ? (m.areaTags || []) : [])))))
+      : Array.from(new Set(state.members.flatMap((m) => (type === 'interest' ? (m.interestTags || []) : type === 'involvement' ? (m.involvementTags || []) : type === 'area' ? (m.areaTags || []) : []))))
+      ).filter((t) => {
+        // 既存ラボメンに1件も紐づいていないタグは表示しない
+        const used = state.members.some((m) => (type === 'interest' ? (m.interestTags || []) : type === 'involvement' ? (m.involvementTags || []) : type === 'area' ? (m.areaTags || []) : []).includes(t))
+        return used
+      })
     const chips = () =>
       h(
         'div',
