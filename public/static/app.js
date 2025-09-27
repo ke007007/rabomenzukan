@@ -22,6 +22,7 @@
     },
     ui: {
       listFiltersCollapsed: false,
+      isComposing: false,
     },
     dialogueSearchQ: '',
   }
@@ -296,6 +297,17 @@
     return Math.random().toString(36).slice(2, 10)
   }
 
+  // Debounce helper to throttle update() during typing
+  const debounce = (() => {
+    const timers = new Map()
+    return function (key, fn, ms = 200) {
+      const t = timers.get(key)
+      if (t) clearTimeout(t)
+      const nt = setTimeout(fn, ms)
+      timers.set(key, nt)
+    }
+  })()
+
   // Router (hash-based to keep things simple)
   function navigate(path) {
     location.hash = '#' + path
@@ -416,13 +428,17 @@
   // List page
   function ListPage() {
     const qInput = h('input', {
+      id: 'list-q',
+      'data-keep-focus': '1',
       type: 'text',
       placeholder: '名前・呼び名・普段やっていることで検索',
       class:
         'w-full md:w-1/2 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300',
+      onCompositionstart: () => { state.ui.isComposing = true },
+      onCompositionend: () => { state.ui.isComposing = false; update() },
       onInput: (e) => {
         state.filter.q = e.target.value
-        update()
+        if (!state.ui.isComposing) debounce('list-q', () => update(), 200)
       },
       value: state.filter.q,
     })
@@ -929,10 +945,17 @@
     })
 
     const searchInput = h('input', {
+      id: 'dialogue-q',
+      'data-keep-focus': '1',
       class: 'border border-gray-300 rounded-lg px-3 py-2 w-full md:w-64',
       placeholder: '氏名/呼ばれたい名前で検索',
       value: state.dialogueSearchQ || '',
-      onInput: (e) => { state.dialogueSearchQ = e.target.value; update() }
+      onCompositionstart: () => { state.ui.isComposing = true },
+      onCompositionend: () => { state.ui.isComposing = false; update() },
+      onInput: (e) => {
+        state.dialogueSearchQ = e.target.value
+        if (!state.ui.isComposing) debounce('dialogue-q', () => update(), 200)
+      }
     })
 
     const dQ = (state.dialogueSearchQ || '').toLowerCase()
@@ -1573,6 +1596,20 @@
       Debug.error('[Render] #root not found')
       return
     }
+
+    // preserve focus for inputs marked with data-keep-focus
+    let focusInfo = null
+    try {
+      const act = document.activeElement
+      if (act && (act.tagName === 'INPUT' || act.tagName === 'TEXTAREA') && act.dataset && act.dataset.keepFocus === '1') {
+        focusInfo = {
+          id: act.id,
+          start: act.selectionStart,
+          end: act.selectionEnd,
+        }
+      }
+    } catch (_) {}
+
     root.innerHTML = ''
     root.appendChild(Header())
     if (state.loading) {
@@ -1580,6 +1617,16 @@
     }
     const view = Router()
     root.appendChild(view)
+
+    // restore focus and selection
+    if (focusInfo && focusInfo.id) {
+      const el = document.getElementById(focusInfo.id)
+      if (el) {
+        try { el.focus() } catch (_) {}
+        try { if (typeof focusInfo.start === 'number' && typeof focusInfo.end === 'number') el.setSelectionRange(focusInfo.start, focusInfo.end) } catch (_) {}
+      }
+    }
+
     // after mount, log sizes for debug
     try {
       const svgs = root.querySelectorAll('svg')
