@@ -717,14 +717,6 @@
             return h('div', { class: 'space-y-2' },
               h('div', { class: 'flex gap-2 items-center' },
                 h('label', { for: fileInputId, class: 'px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 cursor-pointer inline-block' }, 'ファイルを選択'),
-                h('button', { class: 'px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 inline-block', onClick: () => {
-                  const inp = document.getElementById(fileInputId)
-                  if (inp && typeof inp.click === 'function') {
-                    try { inp.click(); Debug.log('[upload] button -> input.click()', { id: fileInputId }) } catch (err) { Debug.error('[upload] input.click failed', err) }
-                  } else {
-                    Debug.warn('[upload] input not found', fileInputId)
-                  }
-                } }, 'ダイアログを開く'),
                 h('span', { class: 'text-xs text-gray-500' }, 'JPEG/PNG, 2MB以下推奨')
               ),
               h('input', {
