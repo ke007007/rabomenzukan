@@ -711,54 +711,56 @@
               update()
             },
           })
-        : h('div', { class: 'space-y-2' },
-            h('div', { class: 'flex gap-2 items-center' },
-              h('label', { for: 'avatar-file-input', class: 'px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 cursor-pointer inline-block' }, 'ファイルを選択'),
-              h('span', { class: 'text-xs text-gray-500' }, 'JPEG/PNG, 2MB以下推奨')
-            ),
-            h('input', {
-              id: 'avatar-file-input',
-              type: 'file',
-              accept: 'image/*',
-              class: 'absolute w-px h-px opacity-0 pointer-events-none',
-              style: 'position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;',
-              onChange: async (e) => {
-              const file = e.target.files && e.target.files.length ? e.target.files[0] : null
-              if (!file) {
-                alert('ファイルが選択されていません')
-                return
-              }
-              if (!(file instanceof Blob)) {
-                alert('不正なファイルです')
-                return
-              }
-              // 軽いバリデーション（2MB超は警告）
-              if (file.size > 2 * 1024 * 1024) {
-                alert('画像サイズが大きいです（2MB以下を推奨）。このまま続行します。')
-              }
-              const reader = new FileReader()
-              reader.onload = () => {
-                try {
-                  m.imageUrl = reader.result
-                  update()
-                } catch (err) {
-                  console.error('[image read] failed to assign result', err)
-                  alert('画像の読み込みに失敗しました（結果の適用に失敗）')
-                }
-              }
-              reader.onerror = (ev) => {
-                console.error('[image read] error', ev)
-                alert('画像の読み込みに失敗しました')
-              }
-              try {
-                reader.readAsDataURL(file)
-              } catch (err) {
-                console.error('[image read] readAsDataURL failed', err)
-                alert('画像の読み込みに失敗しました（readエラー）')
-              }
-            },
-            })
-          ),
+        : (function(){
+            const fileInputId = `avatar-file-input-${m.id || 'new'}`
+            return h('div', { class: 'space-y-2' },
+              h('div', { class: 'flex gap-2 items-center' },
+                h('label', { for: fileInputId, class: 'px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 cursor-pointer inline-block' }, 'ファイルを選択'),
+                h('span', { class: 'text-xs text-gray-500' }, 'JPEG/PNG, 2MB以下推奨')
+              ),
+              h('input', {
+                id: fileInputId,
+                type: 'file',
+                accept: 'image/*',
+                class: 'sr-only',
+                style: 'position:absolute; left:-9999px; width:1px; height:1px; opacity:0;',
+                onChange: async (e) => {
+                  const file = e.target.files && e.target.files.length ? e.target.files[0] : null
+                  if (!file) {
+                    alert('ファイルが選択されていません')
+                    return
+                  }
+                  if (!(file instanceof Blob)) {
+                    alert('不正なファイルです')
+                    return
+                  }
+                  if (file.size > 2 * 1024 * 1024) {
+                    alert('画像サイズが大きいです（2MB以下を推奨）。このまま続行します。')
+                  }
+                  const reader = new FileReader()
+                  reader.onload = () => {
+                    try {
+                      m.imageUrl = reader.result
+                      update()
+                    } catch (err) {
+                      console.error('[image read] failed to assign result', err)
+                      alert('画像の読み込みに失敗しました（結果の適用に失敗）')
+                    }
+                  }
+                  reader.onerror = (ev) => {
+                    console.error('[image read] error', ev)
+                    alert('画像の読み込みに失敗しました')
+                  }
+                  try {
+                    reader.readAsDataURL(file)
+                  } catch (err) {
+                    console.error('[image read] readAsDataURL failed', err)
+                    alert('画像の読み込みに失敗しました（readエラー）')
+                  }
+                },
+              })
+            )
+          })(),
       h('div', { class: 'mt-2' },
         m.imageUrl
           ? h('img', { src: m.imageUrl, class: 'w-24 h-24 rounded-full object-cover' })
