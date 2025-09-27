@@ -250,7 +250,7 @@
   function h(tag, props = {}, ...children) {
     const SVG_NS = 'http://www.w3.org/2000/svg'
     const XLINK_NS = 'http://www.w3.org/1999/xlink'
-    const SVG_TAGS = new Set(['svg','g','line','circle','rect','path','text','image','clipPath','defs','title'])
+    const SVG_TAGS = new Set(['svg','g','line','circle','rect','path','text','image','clipPath','defs','title']) // HTML label is not SVG; handled by default createElement
     const isSvg = SVG_TAGS.has(tag)
     const el = isSvg ? document.createElementNS(SVG_NS, tag) : document.createElement(tag)
 
@@ -713,14 +713,15 @@
           })
         : h('div', { class: 'space-y-2' },
             h('div', { class: 'flex gap-2 items-center' },
-              h('button', { class: 'px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300', onClick: () => document.getElementById('avatar-file-input')?.click() }, 'ファイルを選択'),
+              h('label', { for: 'avatar-file-input', class: 'px-3 py-2 rounded-md bg-gray-200 hover:bg-gray-300 cursor-pointer inline-block' }, 'ファイルを選択'),
               h('span', { class: 'text-xs text-gray-500' }, 'JPEG/PNG, 2MB以下推奨')
             ),
             h('input', {
               id: 'avatar-file-input',
               type: 'file',
               accept: 'image/*',
-              class: 'w-full hidden',
+              class: 'absolute w-px h-px opacity-0 pointer-events-none',
+              style: 'position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;',
               onChange: async (e) => {
               const file = e.target.files && e.target.files.length ? e.target.files[0] : null
               if (!file) {
