@@ -730,13 +730,17 @@
       ),
       imageMode === 'url'
         ? h('input', {
+            id: `image-url-${m.id}`,
+            'data-keep-focus': '1',
             type: 'text',
             placeholder: 'https://...jpg',
             class: 'w-full border border-gray-300 rounded-lg px-3 py-2',
             value: m.imageUrl || '',
+            onCompositionstart: () => { state.ui.isComposing = true },
+            onCompositionend: () => { state.ui.isComposing = false; update() },
             onInput: (e) => {
               m.imageUrl = e.target.value
-              update()
+              if (!state.ui.isComposing) debounce(`img-url-${m.id}`, () => update(), 200)
             },
           })
         : (function(){
