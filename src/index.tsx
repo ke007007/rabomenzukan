@@ -15,6 +15,10 @@ app.use('/static/*', serveStatic({ root: './public' }))
 
 // ---------- Ensure schema (dev/preview safety) ----------
 const ensureSchema = async (db: D1Database) => {
+  // Add new columns if not exist (SQLite doesn't support IF NOT EXISTS for columns)
+  for (const col of ['intro_image1 TEXT', 'intro_image2 TEXT', 'youtube_url1 TEXT', 'youtube_url2 TEXT']) {
+    try { await db.prepare(`ALTER TABLE members ADD COLUMN ${col}`).run() } catch (_) {}
+  }
   // Create tables and indexes if they do not exist (idempotent)
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS members (
@@ -65,7 +69,8 @@ app.get('/api/members', async (c) => {
   const db = c.env.DB
   // Fetch members
   const membersRes = await db.prepare(
-    `SELECT id, name, preferred_name as preferredName, image_url as imageUrl, occupation, why_lab as whyLab, what_to_do as whatToDo, created_at
+    `SELECT id, name, preferred_name as preferredName, image_url as imageUrl, occupation, why_lab as whyLab, what_to_do as whatToDo, created_at,
+            facebook_url as facebookUrl, instagram_url as instagramUrl, x_url as xUrl, website_url1 as websiteUrl1, website_url2 as websiteUrl2
      FROM members
      ORDER BY created_at DESC`
   ).all()
@@ -122,9 +127,30 @@ app.get('/api/members', async (c) => {
       areaTags: t.area,
       coreValuesTags: byMemberCV.get(m.id) || [],
       created_at: m.created_at,
+      facebookUrl: m.facebookUrl || '',
+      instagramUrl: m.instagramUrl || '',
+      xUrl: m.xUrl || '',
+      websiteUrl1: m.websiteUrl1 || '',
+      websiteUrl2: m.websiteUrl2 || '',
     }
   })
   return c.json(out)
+})
+
+// GET /api/members/:id/detail - fetch heavy fields only for detail page
+app.get('/api/members/:id/detail', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const row = await db.prepare(
+    `SELECT intro_image1, intro_image2, youtube_url1, youtube_url2 FROM members WHERE id = ?`
+  ).bind(id).first<any>()
+  if (!row) return c.json(null, 404)
+  return c.json({
+    introImage1: row.intro_image1 || '',
+    introImage2: row.intro_image2 || '',
+    youtubeUrl1: row.youtube_url1 || '',
+    youtubeUrl2: row.youtube_url2 || '',
+  })
 })
 
 // POST /api/members - create member with tags
@@ -135,8 +161,8 @@ app.post('/api/members', async (c) => {
   const now = new Date().toISOString()
   await db
     .prepare(
-      `INSERT INTO members (id, name, preferred_name, image_url, occupation, why_lab, what_to_do, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO members (id, name, preferred_name, image_url, occupation, why_lab, what_to_do, created_at, facebook_url, instagram_url, x_url, website_url1, website_url2, intro_image1, intro_image2, youtube_url1, youtube_url2)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       id,
@@ -147,6 +173,15 @@ app.post('/api/members', async (c) => {
       body.whyLab || '',
       body.whatToDo || '',
       now,
+      body.facebookUrl || '',
+      body.instagramUrl || '',
+      body.xUrl || '',
+      body.websiteUrl1 || '',
+      body.websiteUrl2 || '',
+      body.introImage1 || '',
+      body.introImage2 || '',
+      body.youtubeUrl1 || '',
+      body.youtubeUrl2 || '',
     )
     .run()
 
@@ -174,7 +209,7 @@ app.put('/api/members/:id', async (c) => {
   const body = await c.req.json()
   await db
     .prepare(
-      `UPDATE members SET name=?, preferred_name=?, image_url=?, occupation=?, why_lab=?, what_to_do=? WHERE id=?`
+      `UPDATE members SET name=?, preferred_name=?, image_url=?, occupation=?, why_lab=?, what_to_do=?, facebook_url=?, instagram_url=?, x_url=?, website_url1=?, website_url2=?, intro_image1=?, intro_image2=?, youtube_url1=?, youtube_url2=? WHERE id=?`
     )
     .bind(
       body.name || '',
@@ -183,6 +218,15 @@ app.put('/api/members/:id', async (c) => {
       body.occupation || '',
       body.whyLab || '',
       body.whatToDo || '',
+      body.facebookUrl || '',
+      body.instagramUrl || '',
+      body.xUrl || '',
+      body.websiteUrl1 || '',
+      body.websiteUrl2 || '',
+      body.introImage1 || '',
+      body.introImage2 || '',
+      body.youtubeUrl1 || '',
+      body.youtubeUrl2 || '',
       id,
     )
     .run()

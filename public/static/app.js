@@ -14,6 +14,8 @@
     tags: { interest: [], involvement: [], area: [] },
     loading: false,
     formDraft: null,
+    memberDetail: null, // { id, introImage1, introImage2, youtubeUrl1, youtubeUrl2 }
+    lightboxSrc: null,  // 拡大表示する画像URL（nullなら非表示）
     filter: {
       q: '',
       interest: new Set(),
@@ -161,6 +163,9 @@
         await fetch(`/api/member/${encodeURIComponent(id)}/core-values?${qs}`, { method: 'DELETE' })
       )
     },
+    async getMemberDetail(id) {
+      return this._json(await fetch(`/api/members/${encodeURIComponent(id)}/detail`))
+    },
     async getTags(category, usedOnly = true) {
       const usp = new URLSearchParams()
       if (category) usp.set('category', category)
@@ -200,8 +205,10 @@
   const Debug = (() => {
     let active = false
     try {
+      // localStorageのdebugフラグは使わない（誤って残ったフラグをクリア）
+      localStorage.removeItem('debug')
       const params = new URLSearchParams((location.hash.split('?')[1]) || '')
-      if (params.get('debug') === '1' || localStorage.getItem('debug') === '1') active = true
+      if (params.get('debug') === '1') active = true
     } catch (_) {}
 
     const overlay = document.createElement('div')
@@ -320,7 +327,7 @@
     return location.hash.replace(/^#/, '') || '/'
   }
 
-  window.addEventListener('hashchange', render)
+  window.addEventListener('hashchange', () => { window.scrollTo(0, 0); render() })
   // expose Debug toggle
   window.Debug = Debug
   window.addEventListener('keydown', (e) => {
@@ -622,14 +629,39 @@
         h('div', { class: 'text-xs text-gray-600' }, 'どうしてラボへ？: ' + snippet(m.whyLab)),
         h('div', { class: 'text-xs text-gray-600' }, 'やってみたいこと: ' + snippet(m.whatToDo)),
       ),
-      h('div', { class: 'flex gap-2 mt-auto' }, editBtn, delBtn),
+      h('div', { class: 'flex items-center gap-2 mt-auto' },
+        editBtn, delBtn,
+        h('div', { class: 'flex gap-2 ml-auto', onClick: (e) => e.stopPropagation() },
+          m.facebookUrl ? h('a', { href: m.facebookUrl, target: '_blank', rel: 'noopener noreferrer', class: 'text-blue-500 hover:text-blue-700 text-lg' }, h('i', { class: 'fab fa-facebook' })) : null,
+          m.instagramUrl ? h('a', { href: m.instagramUrl, target: '_blank', rel: 'noopener noreferrer', class: 'text-pink-500 hover:text-pink-700 text-lg' }, h('i', { class: 'fab fa-instagram' })) : null,
+          m.xUrl ? h('a', { href: m.xUrl, target: '_blank', rel: 'noopener noreferrer', class: 'text-gray-700 hover:text-black text-lg' }, h('i', { class: 'fab fa-x-twitter' })) : null,
+          m.websiteUrl1 ? h('a', { href: m.websiteUrl1, target: '_blank', rel: 'noopener noreferrer', class: 'text-green-600 hover:text-green-800 text-lg' }, h('i', { class: 'fas fa-link' })) : null,
+          m.websiteUrl2 ? h('a', { href: m.websiteUrl2, target: '_blank', rel: 'noopener noreferrer', class: 'text-green-600 hover:text-green-800 text-lg' }, h('i', { class: 'fas fa-link' })) : null,
+        ),
+      ),
     )
+  }
+
+  // YouTubeのURLから動画IDを抽出するヘルパー
+  function youtubeVideoId(url) {
+    if (!url) return null
+    const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\s?]+)/)
+    return m ? m[1] : null
   }
 
   // Detail page
   function DetailPage(params) {
     const m = state.members.find((x) => x.id === params.id)
     if (!m) return container(h('div', { class: 'text-gray-600' }, '見つかりませんでした'))
+
+    // 詳細データ（画像・YouTube）を非同期で取得
+    if (!state.memberDetail || state.memberDetail.id !== params.id) {
+      state.memberDetail = { id: params.id, loading: true, introImage1: '', introImage2: '', youtubeUrl1: '', youtubeUrl2: '' }
+      api.getMemberDetail(params.id)
+        .then((d) => { state.memberDetail = { id: params.id, loading: false, ...d }; update() })
+        .catch(() => { state.memberDetail = { id: params.id, loading: false, introImage1: '', introImage2: '', youtubeUrl1: '', youtubeUrl2: '' }; update() })
+    }
+    const detail = state.memberDetail || {}
 
     const back = h(
       'button',
@@ -661,6 +693,40 @@
       section('どうしてラボへ？', h('div', { class: 'text-sm md:text-base leading-relaxed whitespace-pre-line' }, m.whyLab)),
       section('ラボでやってみたいこと', h('div', { class: 'text-sm md:text-base leading-relaxed whitespace-pre-line' }, m.whatToDo)),
       section('大切にしていること', h('div', { class: 'flex flex-wrap gap-2' }, m.coreValuesTags.map((cv) => TagPill(`${cv.value} / ${cv.author}`, 'core')))),
+      (m.facebookUrl || m.instagramUrl || m.xUrl || m.websiteUrl1 || m.websiteUrl2)
+        ? section('SNS・リンク', h('div', { class: 'flex flex-wrap gap-3' },
+            m.facebookUrl ? h('a', { href: m.facebookUrl, target: '_blank', rel: 'noopener noreferrer', class: 'flex items-center gap-1 text-blue-600 hover:underline text-sm' }, h('i', { class: 'fab fa-facebook text-lg' }), 'Facebook') : null,
+            m.instagramUrl ? h('a', { href: m.instagramUrl, target: '_blank', rel: 'noopener noreferrer', class: 'flex items-center gap-1 text-pink-500 hover:underline text-sm' }, h('i', { class: 'fab fa-instagram text-lg' }), 'Instagram') : null,
+            m.xUrl ? h('a', { href: m.xUrl, target: '_blank', rel: 'noopener noreferrer', class: 'flex items-center gap-1 text-gray-800 hover:underline text-sm' }, h('i', { class: 'fab fa-x-twitter text-lg' }), 'X') : null,
+            m.websiteUrl1 ? h('a', { href: m.websiteUrl1, target: '_blank', rel: 'noopener noreferrer', class: 'flex items-center gap-1 text-green-600 hover:underline text-sm' }, h('i', { class: 'fas fa-link text-lg' }), 'Website') : null,
+            m.websiteUrl2 ? h('a', { href: m.websiteUrl2, target: '_blank', rel: 'noopener noreferrer', class: 'flex items-center gap-1 text-green-600 hover:underline text-sm' }, h('i', { class: 'fas fa-link text-lg' }), 'Website 2') : null,
+          ))
+        : null,
+      // 自己紹介画像（グラレコ等）
+      (detail.introImage1 || detail.introImage2)
+        ? section('自己紹介画像', h('div', { class: 'flex flex-col gap-4' },
+            detail.introImage1 ? h('img', { src: detail.introImage1, class: 'max-w-md w-full rounded-lg shadow-md object-contain max-h-80 cursor-zoom-in', onClick: () => { state.lightboxSrc = detail.introImage1; update() } }) : null,
+            detail.introImage2 ? h('img', { src: detail.introImage2, class: 'max-w-md w-full rounded-lg shadow-md object-contain max-h-80 cursor-zoom-in', onClick: () => { state.lightboxSrc = detail.introImage2; update() } }) : null,
+            h('div', { class: 'text-xs text-gray-400' }, '画像をクリックすると拡大できます'),
+          ))
+        : null,
+      // YouTube動画
+      (detail.youtubeUrl1 || detail.youtubeUrl2)
+        ? section('動画・インタビュー', h('div', { class: 'flex flex-col gap-6' },
+            ...[detail.youtubeUrl1, detail.youtubeUrl2].filter(Boolean).map((url) => {
+              const vid = youtubeVideoId(url)
+              if (vid) {
+                return h('iframe', {
+                  src: `https://www.youtube.com/embed/${vid}`,
+                  style: 'display:block;width:100%;max-width:480px;aspect-ratio:16/9;border-radius:8px;border:none;',
+                  allowfullscreen: true,
+                  allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture',
+                })
+              }
+              return h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', class: 'text-blue-600 underline text-sm break-all' }, url)
+            }),
+          ))
+        : null,
     )
   }
 
@@ -679,7 +745,7 @@
     const draftKey = isEdit ? params.id : 'new'
     if (!state.formDraft || state.formDraft._key !== draftKey) {
       state.formDraft = isEdit
-        ? { ...state.members.find((x) => x.id === params.id) }
+        ? { ...state.members.find((x) => x.id === params.id), introImage1: '', introImage2: '', youtubeUrl1: '', youtubeUrl2: '', _detailLoaded: false }
         : {
             id: uid(),
             name: '',
@@ -692,10 +758,27 @@
             whatToDo: '',
             coreValuesTags: [],
             areaTags: [],
+            facebookUrl: '',
+            instagramUrl: '',
+            xUrl: '',
+            websiteUrl1: '',
+            websiteUrl2: '',
+            introImage1: '',
+            introImage2: '',
+            youtubeUrl1: '',
+            youtubeUrl2: '',
           }
       state.formDraft._key = draftKey
     }
     const m = state.formDraft
+
+    // 編集時：詳細データ（画像・YouTube）をAPIから取得してフォームに反映
+    if (isEdit && !m._detailLoaded) {
+      m._detailLoaded = true
+      api.getMemberDetail(params.id)
+        .then((d) => { if (d) { m.introImage1 = d.introImage1 || ''; m.introImage2 = d.introImage2 || ''; m.youtubeUrl1 = d.youtubeUrl1 || ''; m.youtubeUrl2 = d.youtubeUrl2 || '' }; update() })
+        .catch(() => {})
+    }
 
     // persist image mode per draft to avoid reset on re-render
     if (!m._imageMode) m._imageMode = 'url'
@@ -856,6 +939,52 @@
       ),
       field('whyLab', 'どうしてラボへ？', 'textarea'),
       field('whatToDo', 'ラボでやってみたいこと', 'textarea'),
+      h('div', { class: 'mt-4 space-y-2' },
+        h('div', { class: 'text-sm font-bold text-gray-600' }, 'SNS・リンク'),
+        h('div', { class: 'grid grid-cols-1 md:grid-cols-2 gap-3' },
+          field('facebookUrl', 'Facebook URL'),
+          field('instagramUrl', 'Instagram URL'),
+          field('xUrl', 'X（旧Twitter）URL'),
+          field('websiteUrl1', 'ウェブサイト URL 1'),
+          field('websiteUrl2', 'ウェブサイト URL 2'),
+        ),
+      ),
+      h('div', { class: 'mt-4 space-y-2' },
+        h('div', { class: 'text-sm font-bold text-gray-600' }, '自己紹介画像（グラレコ等）'),
+        h('div', { class: 'text-xs text-gray-500 mb-2' }, '詳細ページにのみ表示されます。JPG/PNG推奨（大きすぎる画像は保存に時間がかかります）'),
+        ...['introImage1', 'introImage2'].map((key, i) => {
+          const fileInputId = `intro-img-${key}-${m.id || 'new'}`
+          return h('div', { class: 'space-y-1' },
+            h('label', { class: 'text-xs font-bold text-gray-600' }, `画像 ${i + 1}`),
+            h('div', { class: 'flex gap-2 items-center' },
+              h('label', { class: 'cursor-pointer px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-md text-sm border border-gray-300', for: fileInputId }, 'ファイルを選択'),
+              h('input', {
+                id: fileInputId,
+                type: 'file',
+                accept: 'image/*',
+                class: 'hidden',
+                onChange: (e) => {
+                  const file = e.target.files[0]
+                  if (!file) return
+                  const reader = new FileReader()
+                  reader.onload = () => { m[key] = reader.result; update() }
+                  reader.readAsDataURL(file)
+                },
+              }),
+              m[key] ? h('span', { class: 'text-xs text-green-600' }, '✓ 画像あり') : h('span', { class: 'text-xs text-gray-400' }, '未選択'),
+            ),
+            m[key] ? h('img', { src: m[key], class: 'mt-1 max-h-32 rounded-md object-contain border border-gray-200' }) : null,
+          )
+        }),
+      ),
+      h('div', { class: 'mt-4 space-y-2' },
+        h('div', { class: 'text-sm font-bold text-gray-600' }, 'YouTube動画（インタビュー等）'),
+        h('div', { class: 'text-xs text-gray-500 mb-2' }, 'YouTubeのURLを貼り付けると詳細ページに動画が埋め込まれます'),
+        h('div', { class: 'grid grid-cols-1 gap-3' },
+          field('youtubeUrl1', '動画URL 1（例: https://youtube.com/watch?v=XXXXX）'),
+          field('youtubeUrl2', '動画URL 2'),
+        ),
+      ),
       h('div', { class: 'flex gap-2 mt-4 items-center' },
         h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: onSubmit, disabled: !!state.saving }, state.saving ? '更新中…' : (isEdit ? '更新' : '登録')),
         h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: () => { if (state.saving) return; state.formDraft = null; history.back() }, disabled: !!state.saving }, 'キャンセル'),
@@ -1623,6 +1752,17 @@
     } catch (_) {}
 
     root.innerHTML = ''
+    // ライトボックス（画像拡大表示）
+    if (state.lightboxSrc) {
+      const lb = h('div', {
+        class: 'fixed inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center p-4',
+        onClick: () => { state.lightboxSrc = null; update() },
+      },
+        h('img', { src: state.lightboxSrc, class: 'max-w-full max-h-full rounded-lg shadow-2xl object-contain', onClick: (e) => e.stopPropagation() }),
+        h('button', { class: 'absolute top-4 right-4 text-white text-3xl leading-none', onClick: () => { state.lightboxSrc = null; update() } }, '×'),
+      )
+      root.appendChild(lb)
+    }
     root.appendChild(Header())
     if (state.loading) {
       root.appendChild(h('div', { class: 'container mx-auto px-4' }, h('div', { class: 'my-2 text-sm text-gray-600' }, '読み込み中…')))
