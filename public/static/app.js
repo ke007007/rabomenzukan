@@ -27,6 +27,7 @@
       isComposing: false,
     },
     dialogueSearchQ: '',
+    tagMapCategory: 'interest',
   }
 
   // Sample seed data（5名、タグに一部共通を持たせる）
@@ -376,6 +377,7 @@
       link('/', 'ラボメン一覧', 'fas fa-users'),
       link('/dialogue', 'ラボメン対話', 'fas fa-comments'),
       link('/correlation', 'ラボメン相関図', 'fas fa-project-diagram'),
+      link('/tag-map', 'タグマップ', 'fas fa-tags'),
       link('/core-values', '大切にしていること', 'fas fa-heart'),
     )
 
@@ -385,6 +387,7 @@
       link('/', 'ラボメン一覧'),
       link('/dialogue', 'ラボメン対話'),
       link('/correlation', 'ラボメン相関図'),
+      link('/tag-map', 'タグマップ'),
       link('/core-values', '大切にしていること'),
     )
 
@@ -432,6 +435,95 @@
       'span',
       { class: `text-xs font-medium px-2 py-1 rounded-full ${color} whitespace-nowrap` },
       text,
+    )
+  }
+
+  // 今日のラボメン：日付ベースで毎日2人を選出
+  function getTodayMembers(members, count = 2) {
+    if (!members.length) return []
+    const daysSinceEpoch = Math.floor(Date.now() / (1000 * 60 * 60 * 24))
+    const result = []
+    for (let i = 0; i < count; i++) {
+      result.push(members[(daysSinceEpoch + i) % members.length])
+    }
+    // 同じ人が重複しないように（メンバー数が少ない場合）
+    return [...new Map(result.map(m => [m.id, m])).values()]
+  }
+
+  function MemberSpotCard(m) {
+    const avatar = m.imageUrl
+      ? h('img', { src: m.imageUrl, class: 'w-20 h-20 rounded-full object-cover shadow-md flex-shrink-0' })
+      : h('div', { class: 'w-20 h-20 rounded-full bg-sky-100 flex items-center justify-center flex-shrink-0' },
+          h('i', { class: 'fas fa-user text-2xl text-sky-400' }))
+
+    const tags = h('div', { class: 'flex flex-wrap gap-1 mt-2' },
+      ...(m.interestTags || []).slice(0, 3).map(t => TagPill(t, 'interest')),
+      ...(m.involvementTags || []).slice(0, 1).map(t => TagPill(t, 'involvement')),
+      ...(m.areaTags || []).slice(0, 1).map(t => TagPill(t, 'area')),
+    )
+
+    const coreValues = m.coreValuesTags && m.coreValuesTags.length > 0
+      ? h('div', { class: 'flex flex-wrap gap-1 mt-2' },
+          h('span', { class: 'text-xs text-amber-600 font-bold mr-1' }, '大切にしていること:'),
+          ...m.coreValuesTags.slice(0, 3).map(cv => TagPill(cv.value, 'core'))
+        )
+      : null
+
+    // SNSアイコン（登録があるものだけ表示）
+    const snsLinks = [
+      m.facebookUrl ? h('a', { href: m.facebookUrl, target: '_blank', rel: 'noopener noreferrer', class: 'text-blue-500 hover:text-blue-700 text-lg' }, h('i', { class: 'fab fa-facebook' })) : null,
+      m.instagramUrl ? h('a', { href: m.instagramUrl, target: '_blank', rel: 'noopener noreferrer', class: 'text-pink-500 hover:text-pink-700 text-lg' }, h('i', { class: 'fab fa-instagram' })) : null,
+      m.xUrl ? h('a', { href: m.xUrl, target: '_blank', rel: 'noopener noreferrer', class: 'text-gray-700 hover:text-black text-lg' }, h('i', { class: 'fab fa-x-twitter' })) : null,
+      m.websiteUrl1 ? h('a', { href: m.websiteUrl1, target: '_blank', rel: 'noopener noreferrer', class: 'text-green-600 hover:text-green-800 text-lg' }, h('i', { class: 'fas fa-link' })) : null,
+      m.websiteUrl2 ? h('a', { href: m.websiteUrl2, target: '_blank', rel: 'noopener noreferrer', class: 'text-green-600 hover:text-green-800 text-lg' }, h('i', { class: 'fas fa-link' })) : null,
+    ].filter(Boolean)
+    const sns = snsLinks.length > 0
+      ? h('div', { class: 'flex gap-3 mt-2', onClick: (e) => e.stopPropagation() }, ...snsLinks)
+      : null
+
+    return h('div', { class: 'flex-1 bg-white rounded-xl border border-sky-100 p-4 flex flex-col gap-3' },
+      h('div', { class: 'flex items-start gap-3' },
+        avatar,
+        h('div', { class: 'flex-1 min-w-0' },
+          h('div', { class: 'text-lg font-extrabold text-gray-900 leading-tight' }, m.preferredName || m.name),
+          m.preferredName ? h('div', { class: 'text-xs text-gray-400' }, m.name) : null,
+          m.occupation ? h('div', { class: 'text-xs text-gray-600 mt-1 leading-snug' }, m.occupation) : null,
+          tags,
+          coreValues,
+          sns,
+        ),
+      ),
+      m.whyLab ? h('div', { class: 'p-2.5 bg-sky-50 rounded-lg' },
+        h('div', { class: 'text-xs font-bold text-sky-600 mb-0.5' }, '🔹 なぜラボに？'),
+        h('div', { class: 'text-xs text-gray-700 leading-relaxed whitespace-pre-line line-clamp-3' }, m.whyLab),
+      ) : null,
+      m.whatToDo ? h('div', { class: 'p-2.5 bg-sky-50 rounded-lg' },
+        h('div', { class: 'text-xs font-bold text-sky-600 mb-0.5' }, '🔸 やってみたいこと'),
+        h('div', { class: 'text-xs text-gray-700 leading-relaxed whitespace-pre-line line-clamp-3' }, m.whatToDo),
+      ) : null,
+      h('button', {
+        class: 'mt-auto inline-flex items-center gap-1 text-sm font-medium text-sky-600 hover:text-sky-800',
+        onClick: () => navigate(`/member/${m.id}`)
+      }, 'もっと知る', h('i', { class: 'fas fa-arrow-right text-xs' })),
+    )
+  }
+
+  function TodayMemberCard() {
+    const members = getTodayMembers(state.members, 2)
+    if (!members.length) return null
+
+    const today = new Date()
+    const dateStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`
+
+    return h('div', { class: 'bg-gradient-to-br from-sky-50 to-white rounded-2xl shadow-md border border-sky-100 p-4 sm:p-5 mb-2' },
+      h('div', { class: 'flex items-center gap-2 mb-4' },
+        h('i', { class: 'fas fa-star text-amber-400' }),
+        h('span', { class: 'text-sm font-bold text-sky-700' }, '今日のラボメン'),
+        h('span', { class: 'text-xs text-gray-400 ml-auto' }, dateStr),
+      ),
+      h('div', { class: 'flex flex-col sm:flex-row gap-3' },
+        ...members.map(m => MemberSpotCard(m))
+      ),
     )
   }
 
@@ -521,6 +613,7 @@
     )
 
     return container(
+      TodayMemberCard(),
       h(
         'div',
         { class: 'flex items-center justify-between mb-4' },
@@ -1701,6 +1794,213 @@
     return state.members.flatMap((m) => m.coreValuesTags.map((cv) => cv.value))
   }
 
+  // Tag Map Page - D3バブルチャート（カテゴリタブ切り替え + 2人以上のタグのみ表示）
+  function TagMapPage() {
+    const cat = state.tagMapCategory || 'interest'
+    const colorMap = { interest: '#0ea5e9', involvement: '#3b82f6', area: '#10b981' }
+    const catLabel = { interest: '興味関心', involvement: '関わり方', area: '活動エリア' }
+
+    const tabs = h('div', { class: 'flex gap-2 mb-4' },
+      ...['interest', 'involvement', 'area'].map(c =>
+        h('button', {
+          class: 'px-4 py-2 rounded-full text-sm font-bold border-2 transition-colors ' +
+            (cat === c
+              ? `border-transparent text-white`
+              : 'border-gray-200 text-gray-600 bg-white hover:bg-gray-50'),
+          style: cat === c ? `background:${colorMap[c]};border-color:${colorMap[c]}` : '',
+          onClick: () => { state.tagMapCategory = c; update() },
+        }, catLabel[c])
+      )
+    )
+
+    const svgWrap = h('div', { style: 'width:100%;height:480px;position:relative;', id: 'tag-map-wrap' })
+    const panel = h('div', { id: 'tag-map-panel', class: 'mt-4 hidden' })
+    const tooltip = h('div', {
+      id: 'tag-map-tooltip',
+      class: 'hidden pointer-events-none z-10 bg-gray-800 text-white text-xs rounded px-2 py-1',
+      style: 'position:fixed;'
+    })
+
+    function buildTagData(category) {
+      const map = {}
+      const addTag = (name, member) => {
+        if (!name) return
+        if (!map[name]) map[name] = { name, category, count: 0, members: [] }
+        map[name].count++
+        if (!map[name].members.find(mx => mx.id === member.id)) map[name].members.push(member)
+      }
+      const tagKey = { interest: 'interestTags', involvement: 'involvementTags', area: 'areaTags' }
+      state.members.forEach(m => {
+        ;(m[tagKey[category]] || []).forEach(t => addTag(t, m))
+      })
+      // 3人以上のタグのみ返す
+      return Object.values(map).filter(t => t.count >= 3)
+    }
+
+    function scheduleDraw() {
+      requestAnimationFrame(() => {
+        const wrap = document.getElementById('tag-map-wrap')
+        if (!wrap) return
+        drawTagMap(wrap)
+      })
+    }
+
+    async function drawTagMap(wrap) {
+      let d3
+      try {
+        d3 = await import('https://cdn.jsdelivr.net/npm/d3@7/+esm')
+      } catch (e) {
+        wrap.innerHTML = '<p class="text-red-500 p-4">D3の読み込みに失敗しました。ネットワーク状況をご確認ください。</p>'
+        return
+      }
+
+      const width = wrap.clientWidth || 800
+      const height = 480
+      const currentCat = state.tagMapCategory || 'interest'
+      const tags = buildTagData(currentCat)
+      if (!tags.length) {
+        wrap.innerHTML = '<p class="text-gray-500 p-4">3人以上が持つタグがありません。</p>'
+        return
+      }
+
+      const colorBase = { interest: '#0ea5e9', involvement: '#3b82f6', area: '#10b981' }
+      const color = colorBase[currentCat]
+
+      // Treemapレイアウト
+      const root = d3.hierarchy({ children: tags })
+        .sum(d => d.count)
+        .sort((a, b) => b.value - a.value)
+
+      d3.treemap()
+        .size([width, height])
+        .padding(3)
+        .round(true)(root)
+
+      // メンバー数の最大値（色の濃淡用）
+      const maxCount = d3.max(tags, t => t.count)
+
+      const svg = d3.select(wrap).append('svg')
+        .attr('width', '100%').attr('height', height)
+        .attr('viewBox', `0 0 ${width} ${height}`)
+        .style('border-radius', '12px').style('overflow', 'hidden')
+
+      const tipEl = document.getElementById('tag-map-tooltip')
+
+      const cell = svg.selectAll('g.cell').data(root.leaves()).enter()
+        .append('g').attr('class', 'cell')
+        .attr('transform', d => `translate(${d.x0},${d.y0})`)
+        .style('cursor', 'pointer')
+
+      // 色の濃淡：メンバー数が多いほど濃い
+      const colorScale = d3.scaleLinear()
+        .domain([3, maxCount])
+        .range([color + '30', color + 'cc'])
+
+      cell.append('rect')
+        .attr('width', d => Math.max(0, d.x1 - d.x0))
+        .attr('height', d => Math.max(0, d.y1 - d.y0))
+        .attr('fill', d => colorScale(d.data.count))
+        .attr('stroke', '#fff')
+        .attr('stroke-width', 2)
+        .attr('rx', 4)
+
+      // タイルのサイズが十分な場合のみラベル表示
+      const LABEL_MIN_W = 50
+      const LABEL_MIN_H = 30
+
+      cell.each(function(d) {
+        const w = d.x1 - d.x0
+        const h = d.y1 - d.y0
+        if (w < LABEL_MIN_W || h < LABEL_MIN_H) return  // 小さすぎる場合は非表示
+
+        const g = d3.select(this)
+        const fs = Math.min(14, Math.max(10, Math.sqrt(w * h) * 0.12))
+        const textColor = d.data.count >= maxCount * 0.6 ? '#ffffff' : color
+
+        g.append('text')
+          .attr('x', w / 2).attr('y', h / 2 - (h > 50 ? 8 : 0))
+          .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+          .attr('font-size', fs).attr('font-weight', 'bold')
+          .attr('fill', textColor)
+          .text(d.data.name)
+
+        if (h > 50) {
+          g.append('text')
+            .attr('x', w / 2).attr('y', h / 2 + fs + 2)
+            .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+            .attr('font-size', 10).attr('fill', textColor).attr('opacity', 0.8)
+            .text(`${d.data.count}人`)
+        }
+      })
+
+      cell.on('mouseover', function(event, d) {
+        if (tipEl) {
+          tipEl.classList.remove('hidden')
+          tipEl.textContent = `${d.data.name}（${d.data.count}人）`
+        }
+        d3.select(this).select('rect').attr('opacity', 0.75)
+      })
+      .on('mousemove', function(event) {
+        if (tipEl) {
+          tipEl.style.left = (event.clientX + 12) + 'px'
+          tipEl.style.top = (event.clientY - 8) + 'px'
+        }
+      })
+      .on('mouseout', function() {
+        if (tipEl) tipEl.classList.add('hidden')
+        d3.select(this).select('rect').attr('opacity', 1)
+      })
+      .on('click', function(event, d) {
+        const panelEl = document.getElementById('tag-map-panel')
+        if (!panelEl) return
+        panelEl.innerHTML = ''
+        panelEl.classList.remove('hidden')
+        const title = document.createElement('div')
+        title.className = 'text-base font-bold text-gray-800 mb-3 border-b pb-2'
+        title.textContent = `「${d.data.name}」タグのメンバー（${d.data.count}人）`
+        panelEl.appendChild(title)
+        const grid = document.createElement('div')
+        grid.className = 'grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 gap-3'
+        d.data.members.forEach(m => {
+          const card = document.createElement('div')
+          card.className = 'flex flex-col items-center gap-1 cursor-pointer hover:opacity-80'
+          card.onclick = () => navigate(`/member/${m.id}`)
+          if (m.imageUrl) {
+            const img = document.createElement('img')
+            img.src = m.imageUrl; img.className = 'w-14 h-14 rounded-full object-cover shadow'
+            card.appendChild(img)
+          } else {
+            const ph = document.createElement('div')
+            ph.className = 'w-14 h-14 rounded-full bg-gray-200 flex items-center justify-center'
+            ph.innerHTML = '<i class="fas fa-user text-gray-500"></i>'
+            card.appendChild(ph)
+          }
+          const name = document.createElement('div')
+          name.className = 'text-xs text-center text-gray-700 leading-tight'
+          name.textContent = m.preferredName || m.name
+          card.appendChild(name)
+          grid.appendChild(card)
+        })
+        panelEl.appendChild(grid)
+      })
+    }
+
+    const hint = h('div', { class: 'text-xs text-gray-400 mb-1' }, '面積の大きさ = メンバー数　色が濃いほど人数が多い　※3人以上のタグのみ表示　タイルをクリックするとメンバー表示')
+
+    const wrap = container(
+      h('h1', { class: 'text-2xl font-bold text-gray-900' }, 'タグマップ'),
+      h('p', { class: 'text-sm text-gray-500' }, 'タブを切り替えてカテゴリ別のタグ分布を確認できます。'),
+      tabs,
+      hint,
+      svgWrap,
+      tooltip,
+      panel,
+    )
+
+    scheduleDraw()
+    return wrap
+  }
+
   // Container helper
   function container(...children) {
     return h(
@@ -1721,6 +2021,7 @@
       { path: /^\/member\/(.+)$/, view: (p) => DetailPage({ id: p[1] }) },
       { path: /^\/dialogue$/, view: DialoguePage },
       { path: /^\/correlation$/, view: CorrelationPage },
+      { path: /^\/tag-map$/, view: TagMapPage },
       { path: /^\/core-values$/, view: CoreValuesPage },
     ]
 
