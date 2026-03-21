@@ -21,7 +21,7 @@
       area: new Set(),
     },
     ui: {
-      listFiltersCollapsed: false,
+      listFiltersCollapsed: true,
       isComposing: false,
     },
     dialogueSearchQ: '',
