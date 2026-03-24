@@ -529,6 +529,7 @@
 
   // List page
   function ListPage() {
+    if (state.loading) return container(LoadingSpinner())
     const qInput = h('input', {
       id: 'list-q',
       'data-keep-focus': '1',
@@ -735,6 +736,14 @@
     )
   }
 
+  // ローディングスピナー
+  function LoadingSpinner() {
+    return h('div', { class: 'flex flex-col items-center justify-center py-16 gap-3' },
+      h('div', { class: 'w-10 h-10 border-4 border-blue-200 border-t-blue-500 rounded-full animate-spin' }),
+      h('div', { class: 'text-sm text-gray-500' }, '読み込み中...')
+    )
+  }
+
   // YouTubeのURLから動画IDを抽出するヘルパー
   function youtubeVideoId(url) {
     if (!url) return null
@@ -745,6 +754,7 @@
   // Detail page
   function DetailPage(params) {
     const m = state.members.find((x) => x.id === params.id)
+    if (state.loading) return container(LoadingSpinner())
     if (!m) return container(h('div', { class: 'text-gray-600' }, '見つかりませんでした'))
 
     // 詳細データ（画像・YouTube）を非同期で取得
@@ -2065,9 +2075,6 @@
       root.appendChild(lb)
     }
     root.appendChild(Header())
-    if (state.loading) {
-      root.appendChild(h('div', { class: 'container mx-auto px-4' }, h('div', { class: 'my-2 text-sm text-gray-600' }, '読み込み中…')))
-    }
     const view = Router()
     root.appendChild(view)
 
