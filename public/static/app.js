@@ -202,6 +202,41 @@
     return members.map((m) => ({ ...m }))
   }
 
+  // ---- Image helpers ----
+  // Convert common Google Drive share URLs (file/d/<id>/view, open?id=, uc?id=,
+  // thumbnail?id=) to the embeddable lh3.googleusercontent.com form so <img> can load them.
+  function normalizeImageUrl(url) {
+    if (!url || typeof url !== 'string') return url
+    if (url.startsWith('data:')) return url
+    let id = null
+    const m1 = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/)
+    if (m1) id = m1[1]
+    if (!id) {
+      const m2 = url.match(/drive\.google\.com\/(?:open|uc|thumbnail)\?(?:.*&)?id=([a-zA-Z0-9_-]+)/)
+      if (m2) id = m2[1]
+    }
+    if (id) return `https://lh3.googleusercontent.com/d/${id}=w512`
+    return url
+  }
+
+  function isLikelyImageUrl(url) {
+    if (!url || typeof url !== 'string') return false
+    return /^(https?:\/\/|data:)/.test(url)
+  }
+
+  // Render an <img> that swaps in `fallbackEl` if the src is invalid or fails to load.
+  function imgWithFallback(imgProps, fallbackEl) {
+    const url = normalizeImageUrl(imgProps.src)
+    if (!isLikelyImageUrl(url)) return fallbackEl
+    return h('img', {
+      ...imgProps,
+      src: url,
+      onError: (e) => {
+        try { e.target.replaceWith(fallbackEl) } catch (_) { e.target.style.display = 'none' }
+      },
+    })
+  }
+
   // Debug helper (overlay + logs)
   const Debug = (() => {
     let active = false
@@ -451,10 +486,11 @@
   }
 
   function MemberSpotCard(m) {
-    const avatar = m.imageUrl
-      ? h('img', { src: m.imageUrl, class: 'w-20 h-20 rounded-full object-cover shadow-md flex-shrink-0' })
-      : h('div', { class: 'w-20 h-20 rounded-full bg-sky-100 flex items-center justify-center flex-shrink-0' },
-          h('i', { class: 'fas fa-user text-2xl text-sky-400' }))
+    const avatar = imgWithFallback(
+      { src: m.imageUrl, class: 'w-20 h-20 rounded-full object-cover shadow-md flex-shrink-0' },
+      h('div', { class: 'w-20 h-20 rounded-full bg-sky-100 flex items-center justify-center flex-shrink-0' },
+        h('i', { class: 'fas fa-user text-2xl text-sky-400' }))
+    )
 
     const tags = h('div', { class: 'flex flex-wrap gap-1 mt-2' },
       ...(m.interestTags || []).slice(0, 3).map(t => TagPill(t, 'interest')),
@@ -658,13 +694,14 @@
       )
     }
 
-    const img = m.imageUrl
-      ? h('img', { src: m.imageUrl, class: 'w-16 h-16 rounded-full object-cover' })
-      : h(
-          'div',
-          { class: 'w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center text-gray-600' },
-          h('i', { class: 'fas fa-user text-xl' }),
-        )
+    const img = imgWithFallback(
+      { src: m.imageUrl, class: 'w-16 h-16 rounded-full object-cover' },
+      h(
+        'div',
+        { class: 'w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center text-gray-600' },
+        h('i', { class: 'fas fa-user text-xl' }),
+      )
+    )
 
     const openDetail = () => navigate(`/member/${m.id}`)
 
@@ -772,13 +809,14 @@
       '戻る',
     )
 
-    const avatar = m.imageUrl
-      ? h('img', { src: m.imageUrl, class: 'w-32 h-32 rounded-full object-cover' })
-      : h(
-          'div',
-          { class: 'w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center text-gray-600' },
-          h('i', { class: 'fas fa-user text-3xl' }),
-        )
+    const avatar = imgWithFallback(
+      { src: m.imageUrl, class: 'w-32 h-32 rounded-full object-cover' },
+      h(
+        'div',
+        { class: 'w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center text-gray-600' },
+        h('i', { class: 'fas fa-user text-3xl' }),
+      )
+    )
 
     return container(
       back,
@@ -808,8 +846,14 @@
       // 自己紹介画像（グラレコ等）
       (detail.introImage1 || detail.introImage2)
         ? section('自己紹介画像', h('div', { class: 'flex flex-col gap-4' },
-            detail.introImage1 ? h('img', { src: detail.introImage1, class: 'max-w-md w-full rounded-lg shadow-md object-contain max-h-80 cursor-zoom-in', onClick: () => { state.lightboxSrc = detail.introImage1; update() } }) : null,
-            detail.introImage2 ? h('img', { src: detail.introImage2, class: 'max-w-md w-full rounded-lg shadow-md object-contain max-h-80 cursor-zoom-in', onClick: () => { state.lightboxSrc = detail.introImage2; update() } }) : null,
+            detail.introImage1 ? imgWithFallback(
+              { src: detail.introImage1, class: 'max-w-md w-full rounded-lg shadow-md object-contain max-h-80 cursor-zoom-in', onClick: () => { state.lightboxSrc = normalizeImageUrl(detail.introImage1); update() } },
+              h('div', { class: 'text-xs text-gray-400 italic' }, '自己紹介画像を読み込めませんでした')
+            ) : null,
+            detail.introImage2 ? imgWithFallback(
+              { src: detail.introImage2, class: 'max-w-md w-full rounded-lg shadow-md object-contain max-h-80 cursor-zoom-in', onClick: () => { state.lightboxSrc = normalizeImageUrl(detail.introImage2); update() } },
+              h('div', { class: 'text-xs text-gray-400 italic' }, '自己紹介画像を読み込めませんでした')
+            ) : null,
             h('div', { class: 'text-xs text-gray-400' }, '画像をクリックすると拡大できます'),
           ))
         : null,
@@ -985,7 +1029,10 @@
           })(),
       h('div', { class: 'mt-2' },
         m.imageUrl
-          ? h('img', { src: m.imageUrl, class: 'w-24 h-24 rounded-full object-cover' })
+          ? imgWithFallback(
+              { src: m.imageUrl, class: 'w-24 h-24 rounded-full object-cover' },
+              h('div', { class: 'text-xs text-red-500' }, '画像を読み込めません（URLを確認してください）')
+            )
           : h('div', { class: 'text-xs text-gray-500' }, 'プレビューなし'),
       ),
     )
@@ -1076,7 +1123,10 @@
               }),
               m[key] ? h('span', { class: 'text-xs text-green-600' }, '✓ 画像あり') : h('span', { class: 'text-xs text-gray-400' }, '未選択'),
             ),
-            m[key] ? h('img', { src: m[key], class: 'mt-1 max-h-32 rounded-md object-contain border border-gray-200' }) : null,
+            m[key] ? imgWithFallback(
+              { src: m[key], class: 'mt-1 max-h-32 rounded-md object-contain border border-gray-200' },
+              h('div', { class: 'text-xs text-red-500 mt-1' }, '画像を読み込めません')
+            ) : null,
           )
         }),
       ),
@@ -1218,9 +1268,10 @@
               update()
             },
           },
-          m.imageUrl
-            ? h('img', { src: m.imageUrl, class: 'w-16 h-16 rounded-full object-cover mx-auto' })
-            : h('div', { class: 'w-16 h-16 rounded-full bg-gray-200 mx-auto flex items-center justify-center text-gray-600' }, h('i', { class: 'fas fa-user' })),
+          imgWithFallback(
+            { src: m.imageUrl, class: 'w-16 h-16 rounded-full object-cover mx-auto' },
+            h('div', { class: 'w-16 h-16 rounded-full bg-gray-200 mx-auto flex items-center justify-center text-gray-600' }, h('i', { class: 'fas fa-user' }))
+          ),
           h('div', { class: 'text-xs mt-1 text-center' }, m.name),
         ),
       ),
@@ -1236,9 +1287,10 @@
           'div',
           { class: 'bg-white rounded-lg shadow p-4 space-y-2' },
           h('div', { class: 'flex items-center gap-3' },
-            m.imageUrl
-              ? h('img', { src: m.imageUrl, class: 'w-10 h-10 rounded-full object-cover' })
-              : h('div', { class: 'w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600' }, h('i', { class: 'fas fa-user' })),
+            imgWithFallback(
+              { src: m.imageUrl, class: 'w-10 h-10 rounded-full object-cover' },
+              h('div', { class: 'w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-600' }, h('i', { class: 'fas fa-user' }))
+            ),
             h('div', { class: 'font-bold' }, m.name),
           ),
           h('details', {},
@@ -2069,7 +2121,10 @@
         class: 'fixed inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center p-4',
         onClick: () => { state.lightboxSrc = null; update() },
       },
-        h('img', { src: state.lightboxSrc, class: 'max-w-full max-h-full rounded-lg shadow-2xl object-contain', onClick: (e) => e.stopPropagation() }),
+        imgWithFallback(
+          { src: state.lightboxSrc, class: 'max-w-full max-h-full rounded-lg shadow-2xl object-contain', onClick: (e) => e.stopPropagation() },
+          h('div', { class: 'text-white text-lg' }, '画像を読み込めません')
+        ),
         h('button', { class: 'absolute top-4 right-4 text-white text-3xl leading-none', onClick: () => { state.lightboxSrc = null; update() } }, '×'),
       )
       root.appendChild(lb)
