@@ -2,8 +2,12 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serveStatic } from 'hono/cloudflare-workers'
 
-// Bindings type for D1
-type Bindings = { DB: D1Database }
+// Bindings type for D1 + R2 + vars
+type Bindings = {
+  DB: D1Database
+  FILES: R2Bucket
+  R2_PUBLIC_URL: string
+}
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -13,10 +17,26 @@ app.use('/api/*', cors())
 // Serve static assets from public/
 app.use('/static/*', serveStatic({ root: './public' }))
 
+// Proxy any file out of the R2 bucket. Primarily useful in local development where
+// the r2.dev public host points at a different bucket than the local emulation.
+// In production we serve R2 directly via the r2.dev URL for speed, but keeping this
+// route lets it work as a fallback.
+app.get('/r2/*', async (c) => {
+  const key = c.req.path.replace(/^\/r2\//, '')
+  if (!key) return c.notFound()
+  const obj = await c.env.FILES.get(key)
+  if (!obj) return c.notFound()
+  const headers = new Headers()
+  obj.writeHttpMetadata(headers)
+  headers.set('etag', obj.httpEtag)
+  headers.set('cache-control', 'public, max-age=3600')
+  return new Response(obj.body, { headers })
+})
+
 // ---------- Ensure schema (dev/preview safety) ----------
 const ensureSchema = async (db: D1Database) => {
   // Add new columns if not exist (SQLite doesn't support IF NOT EXISTS for columns)
-  for (const col of ['intro_image1 TEXT', 'intro_image2 TEXT', 'youtube_url1 TEXT', 'youtube_url2 TEXT']) {
+  for (const col of ['intro_image1 TEXT', 'intro_image2 TEXT', 'youtube_url1 TEXT', 'youtube_url2 TEXT', 'profile_pdf_url TEXT', 'profile_pdf_thumb_url TEXT']) {
     try { await db.prepare(`ALTER TABLE members ADD COLUMN ${col}`).run() } catch (_) {}
   }
   // Create tables and indexes if they do not exist (idempotent)
@@ -142,7 +162,7 @@ app.get('/api/members/:id/detail', async (c) => {
   const db = c.env.DB
   const id = c.req.param('id')
   const row = await db.prepare(
-    `SELECT intro_image1, intro_image2, youtube_url1, youtube_url2 FROM members WHERE id = ?`
+    `SELECT intro_image1, intro_image2, youtube_url1, youtube_url2, profile_pdf_url, profile_pdf_thumb_url FROM members WHERE id = ?`
   ).bind(id).first<any>()
   if (!row) return c.json(null, 404)
   return c.json({
@@ -150,6 +170,8 @@ app.get('/api/members/:id/detail', async (c) => {
     introImage2: row.intro_image2 || '',
     youtubeUrl1: row.youtube_url1 || '',
     youtubeUrl2: row.youtube_url2 || '',
+    profilePdfUrl: row.profile_pdf_url || '',
+    profilePdfThumbUrl: row.profile_pdf_thumb_url || '',
   })
 })
 
@@ -161,8 +183,8 @@ app.post('/api/members', async (c) => {
   const now = new Date().toISOString()
   await db
     .prepare(
-      `INSERT INTO members (id, name, preferred_name, image_url, occupation, why_lab, what_to_do, created_at, facebook_url, instagram_url, x_url, website_url1, website_url2, intro_image1, intro_image2, youtube_url1, youtube_url2)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO members (id, name, preferred_name, image_url, occupation, why_lab, what_to_do, created_at, facebook_url, instagram_url, x_url, website_url1, website_url2, intro_image1, intro_image2, youtube_url1, youtube_url2, profile_pdf_url, profile_pdf_thumb_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       id,
@@ -182,6 +204,8 @@ app.post('/api/members', async (c) => {
       body.introImage2 || '',
       body.youtubeUrl1 || '',
       body.youtubeUrl2 || '',
+      body.profilePdfUrl || '',
+      body.profilePdfThumbUrl || '',
     )
     .run()
 
@@ -209,7 +233,7 @@ app.put('/api/members/:id', async (c) => {
   const body = await c.req.json()
   await db
     .prepare(
-      `UPDATE members SET name=?, preferred_name=?, image_url=?, occupation=?, why_lab=?, what_to_do=?, facebook_url=?, instagram_url=?, x_url=?, website_url1=?, website_url2=?, intro_image1=?, intro_image2=?, youtube_url1=?, youtube_url2=? WHERE id=?`
+      `UPDATE members SET name=?, preferred_name=?, image_url=?, occupation=?, why_lab=?, what_to_do=?, facebook_url=?, instagram_url=?, x_url=?, website_url1=?, website_url2=?, intro_image1=?, intro_image2=?, youtube_url1=?, youtube_url2=?, profile_pdf_url=?, profile_pdf_thumb_url=? WHERE id=?`
     )
     .bind(
       body.name || '',
@@ -227,6 +251,8 @@ app.put('/api/members/:id', async (c) => {
       body.introImage2 || '',
       body.youtubeUrl1 || '',
       body.youtubeUrl2 || '',
+      body.profilePdfUrl || '',
+      body.profilePdfThumbUrl || '',
       id,
     )
     .run()
@@ -278,6 +304,74 @@ app.delete('/api/member/:id/core-values', async (c) => {
   const { value, author } = Object.fromEntries(new URL(c.req.url).searchParams)
   await db.prepare(`DELETE FROM core_values WHERE member_id=? AND value=? AND author=?`).bind(id, value || '', author || '').run()
   return c.json({ ok: true })
+})
+
+// POST /api/upload - upload a file to R2 and return its public URL
+// Body: multipart/form-data with 'file' field; optional 'type' field (avatar | intro | pdf)
+app.post('/api/upload', async (c) => {
+  try {
+    if (!c.env.FILES) {
+      return c.json({ error: 'R2 binding (FILES) is not configured' }, 500)
+    }
+    if (!c.env.R2_PUBLIC_URL) {
+      return c.json({ error: 'R2_PUBLIC_URL is not configured' }, 500)
+    }
+
+    let form: FormData
+    try {
+      form = await c.req.formData()
+    } catch (e: any) {
+      return c.json({ error: 'failed to parse multipart body', detail: e?.message || String(e) }, 400)
+    }
+
+    const file = form.get('file')
+    const type = String(form.get('type') || 'misc')
+    if (!file || typeof file === 'string') {
+      return c.json({ error: 'no file field in form data' }, 400)
+    }
+    // File or Blob — both have .size, .type, .stream()
+    const f = file as any
+    const fileSize = typeof f.size === 'number' ? f.size : 0
+    const fileType = typeof f.type === 'string' ? f.type : ''
+    const fileName = typeof f.name === 'string' ? f.name : ''
+
+    const MAX_BYTES = 20 * 1024 * 1024
+    if (fileSize > MAX_BYTES) return c.json({ error: 'file too large (>20MB)' }, 413)
+
+    const allowedPrefixes = new Set(['avatar', 'intro', 'pdf', 'pdf-thumb', 'misc'])
+    const prefix = allowedPrefixes.has(type) ? type : 'misc'
+
+    const nameParts = fileName.split('.')
+    let ext = nameParts.length > 1 ? nameParts.pop()!.toLowerCase().replace(/[^a-z0-9]/g, '') : ''
+    if (!ext) {
+      if (fileType === 'image/jpeg') ext = 'jpg'
+      else if (fileType === 'image/png') ext = 'png'
+      else if (fileType === 'image/webp') ext = 'webp'
+      else if (fileType === 'application/pdf') ext = 'pdf'
+      else ext = 'bin'
+    }
+
+    const key = `${prefix}/${crypto.randomUUID()}.${ext}`
+    try {
+      // Use arrayBuffer for broader compatibility (stream() can hit issues in some runtimes)
+      const buf = await f.arrayBuffer()
+      await c.env.FILES.put(key, buf, {
+        httpMetadata: { contentType: fileType || 'application/octet-stream' },
+      })
+    } catch (e: any) {
+      return c.json({ error: 'failed to write to R2', detail: e?.message || String(e), key }, 500)
+    }
+
+    // In local dev the file is in the local R2 emulation and the public r2.dev URL
+    // points at a different (real) bucket, so serve via the /r2/* proxy instead.
+    const reqUrl = new URL(c.req.url)
+    const isLocal = reqUrl.hostname === 'localhost' || reqUrl.hostname === '127.0.0.1'
+    const publicBase = isLocal ? `${reqUrl.origin}/r2` : c.env.R2_PUBLIC_URL
+    const url = `${publicBase.replace(/\/$/, '')}/${key}`
+    return c.json({ ok: true, url, key, size: fileSize, contentType: fileType })
+  } catch (e: any) {
+    return c.json({ error: 'unexpected error', detail: e?.message || String(e), stack: e?.stack || '' }, 500)
+  }
 })
 
 // GET /api/tags?category=interest|involvement|area&usedOnly=1

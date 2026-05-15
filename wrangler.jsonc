@@ -13,5 +13,17 @@
       "database_name": "webapp-production",
       "database_id": "3f9e4129-6d5e-4948-8808-2927bf458caf"
     }
-  ]
+  ],
+  // R2 bucket for file storage (avatars, intro images, PDFs)
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "rabomenzukan-files",
+      "preview_bucket_name": "rabomenzukan-files"
+    }
+  ],
+  // Public URL base for R2 files. In local dev, override via --binding R2_PUBLIC_URL=http://localhost:8788/r2
+  "vars": {
+    "R2_PUBLIC_URL": "https://pub-c0cad8122f834ed6b7d2d3282fcd34c3.r2.dev"
+  }
 }

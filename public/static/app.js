@@ -14,7 +14,7 @@
     tags: { interest: [], involvement: [], area: [] },
     loading: false,
     formDraft: null,
-    memberDetail: null, // { id, introImage1, introImage2, youtubeUrl1, youtubeUrl2 }
+    memberDetail: null, // { id, introImage1, introImage2, youtubeUrl1, youtubeUrl2, profilePdfUrl, profilePdfThumbUrl }
     lightboxSrc: null,  // 拡大表示する画像URL（nullなら非表示）
     filter: {
       q: '',
@@ -261,6 +261,55 @@
       }
       img.src = url
     })
+  }
+
+  // Lazy-load PDF.js (bundled locally from pdfjs-dist). Only loaded when the user
+  // uploads a PDF, so it doesn't bloat normal page loads.
+  let _pdfJsPromise = null
+  function loadPdfJs() {
+    if (_pdfJsPromise) return _pdfJsPromise
+    _pdfJsPromise = (async () => {
+      const mod = await import('/static/pdfjs/pdf.min.mjs')
+      mod.GlobalWorkerOptions.workerSrc = '/static/pdfjs/pdf.worker.min.mjs'
+      return mod
+    })()
+    return _pdfJsPromise
+  }
+
+  // Render the first page of a PDF File to a JPEG data URL for use as a thumbnail.
+  async function renderPdfFirstPageToJpeg(file, { maxWidth = 600, quality = 0.85 } = {}) {
+    const pdfjsLib = await loadPdfJs()
+    const arrayBuffer = await file.arrayBuffer()
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise
+    const page = await pdf.getPage(1)
+    const baseViewport = page.getViewport({ scale: 1 })
+    const scale = Math.min(maxWidth / baseViewport.width, 3) // cap scale so tiny PDFs don't blow up
+    const viewport = page.getViewport({ scale })
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(viewport.width)
+    canvas.height = Math.round(viewport.height)
+    const ctx = canvas.getContext('2d')
+    // White background so any transparent PDFs render properly as JPEG
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    await page.render({ canvasContext: ctx, viewport }).promise
+    return canvas.toDataURL('image/jpeg', quality)
+  }
+
+  // Upload a Blob/File to R2 via /api/upload. type ∈ {avatar, intro, pdf, pdf-thumb}.
+  // Returns the public URL on success, throws on failure.
+  async function uploadBlobToR2(blob, type, filename) {
+    const formData = new FormData()
+    formData.append('file', blob, filename)
+    formData.append('type', type)
+    const res = await fetch('/api/upload', { method: 'POST', body: formData })
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '')
+      throw new Error(`Upload failed: HTTP ${res.status} ${txt}`)
+    }
+    const data = await res.json()
+    if (!data.url) throw new Error('Upload response missing url field')
+    return data.url
   }
 
   // Render an <img> that swaps in `fallbackEl` if the src is invalid or fails to load.
@@ -835,10 +884,10 @@
 
     // 詳細データ（画像・YouTube）を非同期で取得
     if (!state.memberDetail || state.memberDetail.id !== params.id) {
-      state.memberDetail = { id: params.id, loading: true, introImage1: '', introImage2: '', youtubeUrl1: '', youtubeUrl2: '' }
+      state.memberDetail = { id: params.id, loading: true, introImage1: '', introImage2: '', youtubeUrl1: '', youtubeUrl2: '', profilePdfUrl: '', profilePdfThumbUrl: '' }
       api.getMemberDetail(params.id)
         .then((d) => { state.memberDetail = { id: params.id, loading: false, ...d }; update() })
-        .catch(() => { state.memberDetail = { id: params.id, loading: false, introImage1: '', introImage2: '', youtubeUrl1: '', youtubeUrl2: '' }; update() })
+        .catch(() => { state.memberDetail = { id: params.id, loading: false, introImage1: '', introImage2: '', youtubeUrl1: '', youtubeUrl2: '', profilePdfUrl: '', profilePdfThumbUrl: '' }; update() })
     }
     const detail = state.memberDetail || {}
 
@@ -913,6 +962,71 @@
             }),
           ))
         : null,
+      // プロフィールPDF
+      detail.profilePdfUrl
+        ? (() => {
+            const pdfUrl = detail.profilePdfUrl
+            const isDataUrl = pdfUrl.startsWith('data:')
+            const openPdf = (e) => {
+              if (!isDataUrl) return // 通常URL は <a href> 任せ
+              e.preventDefault()
+              try {
+                // data: URL を Blob 化して開く（モダンブラウザは data: の直接遷移をブロックすることがある）
+                const [meta, b64] = pdfUrl.split(',', 2)
+                const mime = (meta.match(/data:([^;]+)/) || [, 'application/pdf'])[1]
+                const bin = atob(b64)
+                const len = bin.length
+                const bytes = new Uint8Array(len)
+                for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i)
+                const blob = new Blob([bytes], { type: mime })
+                const blobUrl = URL.createObjectURL(blob)
+                window.open(blobUrl, '_blank', 'noopener,noreferrer')
+                // メモリ解放（少し遅らせて、別タブが読み終えるのを待つ）
+                setTimeout(() => URL.revokeObjectURL(blobUrl), 30 * 1000)
+              } catch (err) {
+                console.error('[pdf open] failed', err)
+                alert('PDFを開けませんでした')
+              }
+            }
+            const thumbUrl = detail.profilePdfThumbUrl
+            return section('プロフィールPDF', h('div', { class: 'flex flex-col gap-3' },
+              thumbUrl
+                ? h('a', {
+                    href: isDataUrl ? '#' : pdfUrl,
+                    target: '_blank',
+                    rel: 'noopener noreferrer',
+                    onClick: openPdf,
+                    class: 'group block w-fit max-w-md cursor-pointer',
+                    title: 'クリックでPDFを開く',
+                  },
+                    h('div', { class: 'relative rounded-lg overflow-hidden border border-gray-200 shadow-md group-hover:shadow-xl transition-shadow bg-white' },
+                      h('img', { src: thumbUrl, class: 'block w-full h-auto max-h-96 object-contain bg-white' }),
+                      h('div', { class: 'absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-colors' },
+                        h('div', { class: 'opacity-0 group-hover:opacity-100 transition-opacity px-4 py-2 rounded-full bg-white text-red-700 font-bold text-sm shadow-lg flex items-center gap-2' },
+                          h('i', { class: 'fas fa-file-pdf' }),
+                          'PDFを開く',
+                        ),
+                      ),
+                    ),
+                  )
+                : null,
+              h('a', {
+                href: isDataUrl ? '#' : pdfUrl,
+                target: '_blank',
+                rel: 'noopener noreferrer',
+                onClick: openPdf,
+                class: 'inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-bold text-sm md:text-base w-fit',
+              },
+                h('i', { class: 'fas fa-file-pdf text-xl' }),
+                'PDFを開く',
+                h('i', { class: 'fas fa-external-link-alt text-xs ml-1' }),
+              ),
+              isDataUrl
+                ? h('div', { class: 'text-xs text-gray-500' }, `添付ファイル（${Math.round(pdfUrl.length / 1024)} KB）`)
+                : h('div', { class: 'text-xs text-gray-500 break-all' }, pdfUrl),
+            ))
+          })()
+        : null,
     )
   }
 
@@ -931,7 +1045,7 @@
     const draftKey = isEdit ? params.id : 'new'
     if (!state.formDraft || state.formDraft._key !== draftKey) {
       state.formDraft = isEdit
-        ? { ...state.members.find((x) => x.id === params.id), introImage1: '', introImage2: '', youtubeUrl1: '', youtubeUrl2: '', _detailLoaded: false }
+        ? { ...state.members.find((x) => x.id === params.id), introImage1: '', introImage2: '', youtubeUrl1: '', youtubeUrl2: '', profilePdfUrl: '', profilePdfThumbUrl: '', _detailLoaded: false }
         : {
             id: uid(),
             name: '',
@@ -953,6 +1067,8 @@
             introImage2: '',
             youtubeUrl1: '',
             youtubeUrl2: '',
+            profilePdfUrl: '',
+            profilePdfThumbUrl: '',
           }
       state.formDraft._key = draftKey
     }
@@ -962,7 +1078,7 @@
     if (isEdit && !m._detailLoaded) {
       m._detailLoaded = true
       api.getMemberDetail(params.id)
-        .then((d) => { if (d) { m.introImage1 = d.introImage1 || ''; m.introImage2 = d.introImage2 || ''; m.youtubeUrl1 = d.youtubeUrl1 || ''; m.youtubeUrl2 = d.youtubeUrl2 || '' }; update() })
+        .then((d) => { if (d) { m.introImage1 = d.introImage1 || ''; m.introImage2 = d.introImage2 || ''; m.youtubeUrl1 = d.youtubeUrl1 || ''; m.youtubeUrl2 = d.youtubeUrl2 || ''; m.profilePdfUrl = d.profilePdfUrl || ''; m.profilePdfThumbUrl = d.profilePdfThumbUrl || '' }; update() })
         .catch(() => {})
     }
 
@@ -1041,12 +1157,13 @@
                   try {
                     // Avatar is shown at max ~128px circle — 512px source is plenty even on retina.
                     const dataUrl = await resizeImageToDataUrl(file, { maxDim: 512, quality: 0.85 })
-                    m.imageUrl = dataUrl
-                    Debug.log('[upload] resized -> imageUrl set, length:', dataUrl.length, 'original:', file.size)
+                    const blob = await (await fetch(dataUrl)).blob()
+                    m.imageUrl = await uploadBlobToR2(blob, 'avatar', `avatar-${file.name || 'image'}.jpg`)
+                    Debug.log('[upload] avatar uploaded to R2:', m.imageUrl, 'original:', file.size, 'resized:', blob.size)
                     update()
                   } catch (err) {
-                    console.error('[image read] resize failed', err)
-                    alert('画像の処理に失敗しました：' + (err && err.message ? err.message : String(err)))
+                    console.error('[avatar upload] failed', err)
+                    alert('画像のアップロードに失敗しました：' + (err && err.message ? err.message : String(err)))
                   }
                 },
               })
@@ -1144,11 +1261,12 @@
                   try {
                     // Intro image can be opened in the lightbox — 1280px keeps it crisp when zoomed.
                     const dataUrl = await resizeImageToDataUrl(file, { maxDim: 1280, quality: 0.85 })
-                    m[key] = dataUrl
+                    const blob = await (await fetch(dataUrl)).blob()
+                    m[key] = await uploadBlobToR2(blob, 'intro', `intro-${file.name || 'image'}.jpg`)
                     update()
                   } catch (err) {
-                    console.error('[intro image] resize failed', err)
-                    alert('画像の処理に失敗しました：' + (err && err.message ? err.message : String(err)))
+                    console.error('[intro image] upload failed', err)
+                    alert('画像のアップロードに失敗しました：' + (err && err.message ? err.message : String(err)))
                   }
                 },
               }),
@@ -1169,6 +1287,78 @@
           field('youtubeUrl2', '動画URL 2'),
         ),
       ),
+      (() => {
+        const pdfFileInputId = `pdf-file-input-${m.id || 'new'}`
+        const isDataUrl = (m.profilePdfUrl || '').startsWith('data:')
+        const dataUrlSizeKB = isDataUrl ? Math.round(m.profilePdfUrl.length / 1024) : 0
+        return h('div', { class: 'mt-4 space-y-2' },
+          h('div', { class: 'text-sm font-bold text-gray-600' }, 'プロフィールPDF（任意）'),
+          h('div', { class: 'text-xs text-gray-500 mb-2' }, 'PDFをそのまま添付できます（最大20MB）。または Google Drive 等の共有URLを貼ってもOK。'),
+          isDataUrl
+            ? h('div', { class: 'flex items-center gap-2 p-2 rounded-md bg-yellow-50 border border-yellow-200' },
+                h('i', { class: 'fas fa-file-pdf text-red-600 text-lg' }),
+                h('span', { class: 'text-sm text-gray-700' }, `旧形式の埋め込みPDF（${dataUrlSizeKB} KB）。次回アップロードでR2に移ります`),
+                h('button', {
+                  type: 'button',
+                  class: 'ml-auto text-xs px-2 py-1 rounded-md bg-gray-200 hover:bg-gray-300',
+                  onClick: () => { m.profilePdfUrl = ''; update() },
+                }, '削除'),
+              )
+            : h('div', { class: 'space-y-2' },
+                field('profilePdfUrl', 'PDFのURL'),
+                h('div', { class: 'flex items-center gap-2' },
+                  h('span', { class: 'text-xs text-gray-500' }, 'または'),
+                  h('label', {
+                    class: 'cursor-pointer px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-md text-sm border border-gray-300',
+                    for: pdfFileInputId,
+                  }, '📎 PDFファイルを添付'),
+                  h('input', {
+                    id: pdfFileInputId,
+                    type: 'file',
+                    accept: 'application/pdf,.pdf',
+                    class: 'hidden',
+                    onChange: async (e) => {
+                      const file = e.target.files && e.target.files[0]
+                      if (!file) return
+                      if (file.size > 20 * 1024 * 1024) {
+                        alert(`このPDFは${Math.round(file.size / 1024 / 1024)} MB あり、上限の20MBを超えています。\n別のPDFを試すか、Google Drive等にアップロードして共有URLを貼ってください。`)
+                        e.target.value = ''
+                        return
+                      }
+                      try {
+                        // 1) Upload the PDF itself
+                        m.profilePdfUrl = await uploadBlobToR2(file, 'pdf', file.name || 'profile.pdf')
+                        // Clear any old thumbnail so the UI shows a "generating..." state cleanly
+                        m.profilePdfThumbUrl = ''
+                        update()
+                        // 2) Generate thumbnail of page 1 and upload it (best-effort — PDF still works without)
+                        try {
+                          const thumbDataUrl = await renderPdfFirstPageToJpeg(file, { maxWidth: 600, quality: 0.85 })
+                          const thumbBlob = await (await fetch(thumbDataUrl)).blob()
+                          m.profilePdfThumbUrl = await uploadBlobToR2(thumbBlob, 'pdf-thumb', 'pdf-thumb.jpg')
+                          update()
+                        } catch (thumbErr) {
+                          console.warn('[pdf thumb] failed to generate thumbnail', thumbErr)
+                          // Non-fatal: leave thumb URL empty, detail page will fall back to button-only
+                        }
+                      } catch (err) {
+                        console.error('[pdf upload] failed', err)
+                        alert('PDFのアップロードに失敗しました：' + (err && err.message ? err.message : String(err)))
+                      }
+                    },
+                  }),
+                ),
+                m.profilePdfUrl && !isDataUrl ? h('div', { class: 'text-xs text-green-600 break-all' }, `✓ PDFが設定されています（${m.profilePdfUrl.slice(0, 80)}${m.profilePdfUrl.length > 80 ? '…' : ''}）`) : null,
+                // Thumbnail preview if available (R2-uploaded PDFs only)
+                m.profilePdfThumbUrl
+                  ? h('div', { class: 'mt-1' },
+                      h('div', { class: 'text-xs text-gray-500 mb-1' }, 'サムネイル（1ページ目）:'),
+                      h('img', { src: m.profilePdfThumbUrl, class: 'max-h-40 rounded-md border border-gray-200 shadow-sm' }),
+                    )
+                  : (m.profilePdfUrl && !isDataUrl && m.profilePdfUrl.includes('/r2/pdf/') ? h('div', { class: 'text-xs text-gray-500' }, 'サムネイル生成中...') : null),
+              ),
+        )
+      })(),
       h('div', { class: 'flex gap-2 mt-4 items-center' },
         h('button', { class: 'bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: onSubmit, disabled: !!state.saving }, state.saving ? '更新中…' : (isEdit ? '更新' : '登録')),
         h('button', { class: 'bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg min-h-[40px] disabled:opacity-50 disabled:cursor-not-allowed', onClick: () => { if (state.saving) return; state.formDraft = null; history.back() }, disabled: !!state.saving }, 'キャンセル'),

@@ -12,5 +12,15 @@
       "database_name": "webapp-production",
       "database_id": "3f9e4129-6d5e-4948-8808-2927bf458caf"
     }
-  ]
+  ],
+  "r2_buckets": [
+    {
+      "binding": "FILES",
+      "bucket_name": "rabomenzukan-files",
+      "preview_bucket_name": "rabomenzukan-files"
+    }
+  ],
+  "vars": {
+    "R2_PUBLIC_URL": "https://pub-c0cad8122f834ed6b7d2d3282fcd34c3.r2.dev"
+  }
 }

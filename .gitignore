@@ -18,3 +18,10 @@ logs/
 
 # OS
 .DS_Store
+
+# Local DB backups (can be large — 40MB+ when including image Base64)
+backup/
+
+# Claude Code / Playwright MCP local state
+.claude/
+.playwright-mcp/
