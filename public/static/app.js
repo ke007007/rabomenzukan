@@ -224,6 +224,45 @@
     return /^(https?:\/\/|data:)/.test(url)
   }
 
+  // Resize an image File to a JPEG data URL with bounded dimensions, so the resulting
+  // Base64 string fits comfortably in Cloudflare D1 (which fails on multi-MB blobs).
+  // Returns a Promise<string> (data URL).
+  function resizeImageToDataUrl(file, { maxDim = 1280, quality = 0.85 } = {}) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file)
+      const img = new Image()
+      img.onload = () => {
+        try {
+          let w = img.naturalWidth, h = img.naturalHeight
+          if (Math.max(w, h) > maxDim) {
+            const scale = maxDim / Math.max(w, h)
+            w = Math.round(w * scale)
+            h = Math.round(h * scale)
+          }
+          const canvas = document.createElement('canvas')
+          canvas.width = w
+          canvas.height = h
+          const ctx = canvas.getContext('2d')
+          // Fill white so any source transparency doesn't render as black in JPEG
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(0, 0, w, h)
+          ctx.drawImage(img, 0, 0, w, h)
+          const dataUrl = canvas.toDataURL('image/jpeg', quality)
+          URL.revokeObjectURL(url)
+          resolve(dataUrl)
+        } catch (err) {
+          URL.revokeObjectURL(url)
+          reject(err)
+        }
+      }
+      img.onerror = () => {
+        URL.revokeObjectURL(url)
+        reject(new Error('画像の読み込みに失敗しました（対応していない形式の可能性: HEIC等）'))
+      }
+      img.src = url
+    })
+  }
+
   // Render an <img> that swaps in `fallbackEl` if the src is invalid or fails to load.
   function imgWithFallback(imgProps, fallbackEl) {
     const url = normalizeImageUrl(imgProps.src)
@@ -999,29 +1038,15 @@
                     alert('不正なファイルです')
                     return
                   }
-                  if (file.size > 2 * 1024 * 1024) {
-                    alert('画像サイズが大きいです（2MB以下を推奨）。このまま続行します。')
-                  }
-                  const reader = new FileReader()
-                  reader.onload = () => {
-                    try {
-                      m.imageUrl = reader.result
-                      Debug.log('[upload] reader.onload -> imageUrl set, length:', (typeof reader.result === 'string' ? reader.result.length : 0))
-                      update()
-                    } catch (err) {
-                      console.error('[image read] failed to assign result', err)
-                      alert('画像の読み込みに失敗しました（結果の適用に失敗）')
-                    }
-                  }
-                  reader.onerror = (ev) => {
-                    console.error('[image read] error', ev)
-                    alert('画像の読み込みに失敗しました')
-                  }
                   try {
-                    reader.readAsDataURL(file)
+                    // Avatar is shown at max ~128px circle — 512px source is plenty even on retina.
+                    const dataUrl = await resizeImageToDataUrl(file, { maxDim: 512, quality: 0.85 })
+                    m.imageUrl = dataUrl
+                    Debug.log('[upload] resized -> imageUrl set, length:', dataUrl.length, 'original:', file.size)
+                    update()
                   } catch (err) {
-                    console.error('[image read] readAsDataURL failed', err)
-                    alert('画像の読み込みに失敗しました（readエラー）')
+                    console.error('[image read] resize failed', err)
+                    alert('画像の処理に失敗しました：' + (err && err.message ? err.message : String(err)))
                   }
                 },
               })
@@ -1113,12 +1138,18 @@
                 type: 'file',
                 accept: 'image/*',
                 class: 'hidden',
-                onChange: (e) => {
+                onChange: async (e) => {
                   const file = e.target.files[0]
                   if (!file) return
-                  const reader = new FileReader()
-                  reader.onload = () => { m[key] = reader.result; update() }
-                  reader.readAsDataURL(file)
+                  try {
+                    // Intro image can be opened in the lightbox — 1280px keeps it crisp when zoomed.
+                    const dataUrl = await resizeImageToDataUrl(file, { maxDim: 1280, quality: 0.85 })
+                    m[key] = dataUrl
+                    update()
+                  } catch (err) {
+                    console.error('[intro image] resize failed', err)
+                    alert('画像の処理に失敗しました：' + (err && err.message ? err.message : String(err)))
+                  }
                 },
               }),
               m[key] ? h('span', { class: 'text-xs text-green-600' }, '✓ 画像あり') : h('span', { class: 'text-xs text-gray-400' }, '未選択'),
