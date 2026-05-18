@@ -36,6 +36,7 @@
       expanded: new Set(),
       composer: { open: false, title: '', body: '', submitter: '' },
       commentDraft: {},
+      editing: { id: null, title: '', body: '', submitter: '' },
     },
   }
 
@@ -2452,6 +2453,51 @@
     update()
   }
 
+  function startEditPost(post) {
+    state.posts.editing = {
+      id: post.id,
+      title: post.title || '',
+      body: post.body || '',
+      submitter: post.submitter || '',
+    }
+    // ensure the card stays expanded while editing
+    state.posts.expanded.add(post.id)
+    update()
+  }
+
+  function cancelEditPost() {
+    state.posts.editing = { id: null, title: '', body: '', submitter: '' }
+    update()
+  }
+
+  async function saveEditPost() {
+    const e = state.posts.editing
+    if (!e.id) return
+    const title = (e.title || '').trim()
+    if (!title) {
+      alert('タイトルを入力してください')
+      return
+    }
+    try {
+      await api.updateImprovement(e.id, {
+        title,
+        body: e.body || '',
+        submitter: (e.submitter || '').trim(),
+      })
+      const post = state.posts.items.find((p) => p.id === e.id)
+      if (post) {
+        post.title = title
+        post.body = e.body || ''
+        post.submitter = (e.submitter || '').trim() || '匿名のラボメン'
+        post.updated_at = new Date().toISOString()
+      }
+      state.posts.editing = { id: null, title: '', body: '', submitter: '' }
+      update()
+    } catch (err) {
+      alert('編集の保存に失敗しました：' + (err && err.message ? err.message : err))
+    }
+  }
+
   async function deletePost(post) {
     if (!confirm(`「${post.title}」を削除しますか？コメントも一緒に削除されます。`)) return
     try {
@@ -2558,6 +2604,7 @@
     const expanded = state.posts.expanded.has(post.id)
     const draft = state.posts.commentDraft[post.id] || { body: '', commenter: '' }
     state.posts.commentDraft[post.id] = draft
+    const isEditing = state.posts.editing.id === post.id
 
     const statusSelect = h('select', {
       class: 'text-xs border border-gray-300 rounded px-2 py-1 bg-white',
@@ -2593,6 +2640,65 @@
       return h('div', { class: 'bg-white rounded-lg shadow p-4' }, header)
     }
 
+    // ----- Edit mode -----
+    if (isEditing) {
+      const e = state.posts.editing
+      const editHeader = h('div', { class: 'flex items-center justify-between gap-3' },
+        h('div', { class: 'flex items-center gap-2 flex-wrap' },
+          PostStatusBadge(post.status),
+          h('span', { class: 'text-xs text-gray-500' }, `編集中（${formatPostDate(post.created_at)}）`),
+        ),
+        h('i', { class: 'fas fa-pen text-sky-500' }),
+      )
+      return h('div', { class: 'bg-white rounded-lg shadow p-4 space-y-3 border-2 border-sky-200' },
+        editHeader,
+        h('div', {},
+          h('label', { class: 'block text-xs font-bold text-gray-600 mb-1' }, 'タイトル（必須）'),
+          h('input', {
+            id: `post-edit-title-${post.id}`,
+            'data-keep-focus': '1',
+            type: 'text',
+            class: 'w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300',
+            value: e.title,
+            onInput: (ev) => { e.title = ev.target.value },
+          }),
+        ),
+        h('div', {},
+          h('label', { class: 'block text-xs font-bold text-gray-600 mb-1' }, '内容'),
+          h('textarea', {
+            id: `post-edit-body-${post.id}`,
+            'data-keep-focus': '1',
+            rows: 5,
+            class: 'w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300',
+            value: e.body,
+            onInput: (ev) => { e.body = ev.target.value },
+          }),
+        ),
+        h('div', {},
+          h('label', { class: 'block text-xs font-bold text-gray-600 mb-1' }, 'お名前（空欄なら「匿名のラボメン」）'),
+          h('input', {
+            id: `post-edit-name-${post.id}`,
+            'data-keep-focus': '1',
+            type: 'text',
+            placeholder: '匿名のラボメン',
+            class: 'w-full md:w-1/2 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300',
+            value: e.submitter,
+            onInput: (ev) => { e.submitter = ev.target.value },
+          }),
+        ),
+        h('div', { class: 'flex justify-end gap-2' },
+          h('button', {
+            class: 'px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm',
+            onClick: cancelEditPost,
+          }, 'キャンセル'),
+          h('button', {
+            class: 'px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold shadow',
+            onClick: saveEditPost,
+          }, '保存する'),
+        ),
+      )
+    }
+
     const commentsList = Array.isArray(post.comments) && post.comments.length > 0
       ? h('ul', { class: 'space-y-2' },
           ...post.comments.map((cm) =>
@@ -2623,9 +2729,13 @@
         h('span', { class: 'text-gray-600' }, 'ステータス：'),
         statusSelect,
         h('button', {
-          class: 'ml-auto text-red-500 hover:text-red-700 text-xs',
+          class: 'ml-auto text-sky-600 hover:text-sky-800 text-xs font-medium',
+          onClick: () => startEditPost(post),
+        }, h('i', { class: 'fas fa-pen mr-1' }), '編集'),
+        h('button', {
+          class: 'text-red-500 hover:text-red-700 text-xs',
           onClick: () => deletePost(post),
-        }, h('i', { class: 'fas fa-trash mr-1' }), '投稿を削除'),
+        }, h('i', { class: 'fas fa-trash mr-1' }), '削除'),
       ),
       h('div', { class: 'border-t pt-3 space-y-2' },
         h('h4', { class: 'text-sm font-bold text-gray-700' }, `コメント（${(post.comments || []).length}）`),

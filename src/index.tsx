@@ -495,6 +495,10 @@ app.patch('/api/improvements/:id', async (c) => {
   if (typeof body.body === 'string') {
     fields.push('body = ?'); binds.push(clamp(body.body, MAX_TEXT_LEN))
   }
+  if (typeof body.submitter === 'string') {
+    const s = clamp(body.submitter, MAX_NAME_LEN) || '匿名のラボメン'
+    fields.push('submitter = ?'); binds.push(s)
+  }
   if (fields.length === 0) return c.json({ error: 'no fields to update' }, 400)
   fields.push('updated_at = ?'); binds.push(new Date().toISOString())
   binds.push(id)
