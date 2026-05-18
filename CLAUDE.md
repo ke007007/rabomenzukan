@@ -1,7 +1,7 @@
 # ラボメン図鑑 プロジェクト説明書
 
 このファイルは Claude が新しいセッションを開くたびに自動で読む「プロジェクトの説明書」です。
-**最終更新：2026-05-16（R2マイグレーション完了後）**
+**最終更新：2026-05-18（ねえねえポスト機能追加）**
 
 ---
 
@@ -54,8 +54,11 @@
 | DB名 | `webapp-production` |
 | DB ID | `3f9e4129-6d5e-4948-8808-2927bf458caf` |
 | 種類 | Cloudflare D1（SQLiteベース） |
-| 主テーブル | `members`、`tags`、`member_tags`、`core_values` |
+| 主テーブル | `members`、`tags`、`member_tags`、`core_values`、`improvement_requests`★、`improvement_comments`★ |
 | 画像/PDFカラム | `image_url`、`intro_image1`、`intro_image2`、`profile_pdf_url`、`profile_pdf_thumb_url` |
+| ねえねえポストカラム | `improvement_requests.likes`（いいね数、★2026-05-18追加） |
+
+★ 2026-05-18 のねえねえポスト機能で追加
 
 ### スキーマ自動マイグレーション
 `src/index.tsx` の `ensureSchema()` が `/api/*` リクエスト時に「カラムがなかったら追加する」を自動実行。本番でも自動で適用されるので、新カラム追加は単にコードに足すだけでOK。
@@ -83,6 +86,53 @@
 4. **R2 Class B Operations**: 500万回（無料枠の50%）で通知
 
 普段の使い方なら無料枠の数百〜数千倍の余裕。アラートが鳴ったら異常事態。
+
+---
+
+## 📮 ねえねえポスト（改善要望掲示板、2026-05-18追加）
+
+トップヘッダーの「ねえねえポスト」から `/posts` に遷移する、誰でも投稿/コメント/ステータス変更/いいねできる軽量フィードバック掲示板。**ログイン機能なし**。
+
+### データモデル
+- `improvement_requests`：id / title / body / submitter / status / **likes** / created_at / updated_at
+  - status: `new`（未対応）/ `in_progress`（対応中）/ `done`（対応済み）/ `wontfix`（見送り）
+- `improvement_comments`：id / request_id / commenter / body / created_at
+- 投稿者名・コメント者名が空のときは「匿名のラボメン」として保存
+
+### APIエンドポイント（すべて `/api/improvements` 配下）
+| メソッド | パス | 役割 |
+|---|---|---|
+| GET | `/api/improvements` | 一覧（コメント数つき） |
+| GET | `/api/improvements/:id` | 詳細 + コメント一覧 |
+| POST | `/api/improvements` | 新規投稿 |
+| PATCH | `/api/improvements/:id` | title / body / submitter / status の更新 |
+| DELETE | `/api/improvements/:id` | 投稿削除（コメントも cascade で消える） |
+| POST | `/api/improvements/:id/comments` | コメント追加 |
+| DELETE | `/api/improvements/:reqId/comments/:cid` | コメント削除 |
+| POST | `/api/improvements/:id/like` | いいね +1 |
+| DELETE | `/api/improvements/:id/like` | いいね -1（0で下げ止まり） |
+
+### いいねの仕組み（重要：ブラウザ単位）
+- サーバーは「合計いいね数」だけを持つ。**「誰がいいねしたか」は持たない**
+- ブラウザの `localStorage`（キー: `posts.likedIds.v1`）に「このブラウザがいいねした投稿IDの配列」を保存
+- いいね済みかどうかは localStorage を見て判定（ハート塗りつぶし表示）
+- 別ブラウザ・別端末では同じ投稿に再度いいねできてしまう仕様（軽量化のため意図的）
+
+### ソート
+- フロント側で並び替え（API側は固定ソート）。3種類：
+  - **おすすめ**（デフォルト）：status優先（未対応→対応中→完了→見送り）→ 更新日時降順
+  - **いいね順**：likes 降順
+  - **新着順**：created_at 降順
+
+### 主な関数（[public/static/app.js](public/static/app.js)）
+- `PostsPage()`：ページ本体
+- `PostCard(post)`：カード（折りたたみ / 編集モード / 展開モード対応）
+- `PostComposer()`：新規投稿フォーム
+- `loadPosts()` / `submitPost()` / `submitComment()`
+- `toggleLikePost(post)`：いいね toggle（楽観的更新 + API失敗時は revert）
+- `loadLikedIds()` / `saveLikedIds()`：localStorage 読み書き
+- `startEditPost()` / `saveEditPost()` / `cancelEditPost()`：編集モード
+- `changePostStatus()` / `deletePost()` / `deleteComment()`
 
 ---
 
@@ -200,6 +250,19 @@ npm run build
 
 ## 📝 直近の変更履歴
 
+### 2026-05-18
+- **「ねえねえポスト」機能を追加**（改善要望掲示板）
+  - ヘッダーに 📮 ねえねえポストのメニュー追加 → `/posts` ルート
+  - D1に2テーブル追加（`improvement_requests`、`improvement_comments`、自動マイグレーション）
+  - 4ステータス（未対応 / 対応中 / 対応済み / 見送り）、フィルター付き
+  - 誰でも投稿・コメント・ステータス変更・編集・削除が可能（ログイン不要）
+- **投稿の編集機能**：タイトル / 内容 / お名前を後から修正可能（インライン編集モード）
+- **いいね機能**：
+  - 各投稿に ♡ ボタン（カウンター付き）
+  - **ブラウザ単位** で1投稿1回（localStorage で管理、サーバーは合計数のみ保持）
+  - 「いいね順」「新着順」「おすすめ」の3種類でソート可能
+- 主なcommit: `07f0066`（基本機能）、`cc0c577`（編集機能）、`482277c`（いいね＋ソート）
+
 ### 2026-05-16
 - **R2 移行プロジェクト完了**
   - R2バケット `rabomenzukan-files` 作成（APAC、公開URL有効）
@@ -227,9 +290,11 @@ npm run build
 - フロント全体: `public/static/app.js`
   - 画像/PDFアップロードヘルパー: `uploadBlobToR2()`、`resizeImageToDataUrl()`、`renderPdfFirstPageToJpeg()`、`loadPdfJs()`
   - URL正規化: `normalizeImageUrl()`、`imgWithFallback()`
+  - ねえねえポスト: `PostsPage()`、`PostCard()`、`toggleLikePost()`、`loadLikedIds()` ほか
 - バックエンド: `src/index.tsx`
   - スキーマ: `ensureSchema()`
   - アップロード API: `app.post('/api/upload', ...)`
   - R2プロキシ: `app.get('/r2/*', ...)`
+  - ねえねえポストAPI: `app.get/post/patch/delete('/api/improvements/...')`
 - ロールバック: `ROLLBACK.md`
 - マイグレーション再実行: `node scripts/migrate-base64-to-r2.mjs --help`
