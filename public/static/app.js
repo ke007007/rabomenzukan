@@ -28,6 +28,15 @@
     },
     dialogueSearchQ: '',
     tagMapCategory: 'interest',
+    posts: {
+      loaded: false,
+      loading: false,
+      items: [],
+      filter: 'all',
+      expanded: new Set(),
+      composer: { open: false, title: '', body: '', submitter: '' },
+      commentDraft: {},
+    },
   }
 
   // Sample seed data（5名、タグに一部共通を持たせる）
@@ -173,6 +182,49 @@
       if (usedOnly) usp.set('usedOnly', '1')
       const url = '/api/tags' + (usp.toString() ? `?${usp.toString()}` : '')
       return this._json(await fetch(url))
+    },
+    async listImprovements() {
+      return this._json(await fetch('/api/improvements'))
+    },
+    async getImprovement(id) {
+      return this._json(await fetch(`/api/improvements/${encodeURIComponent(id)}`))
+    },
+    async createImprovement(payload) {
+      return this._json(
+        await fetch('/api/improvements', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      )
+    },
+    async updateImprovement(id, payload) {
+      return this._json(
+        await fetch(`/api/improvements/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      )
+    },
+    async deleteImprovement(id) {
+      return this._json(
+        await fetch(`/api/improvements/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      )
+    },
+    async addImprovementComment(id, payload) {
+      return this._json(
+        await fetch(`/api/improvements/${encodeURIComponent(id)}/comments`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+      )
+    },
+    async deleteImprovementComment(reqId, cid) {
+      return this._json(
+        await fetch(`/api/improvements/${encodeURIComponent(reqId)}/comments/${encodeURIComponent(cid)}`, { method: 'DELETE' })
+      )
     },
     async refreshAll() {
       state.loading = true
@@ -502,6 +554,7 @@
       link('/correlation', 'ラボメン相関図', 'fas fa-project-diagram'),
       link('/tag-map', 'タグマップ', 'fas fa-tags'),
       link('/core-values', '大切にしていること', 'fas fa-heart'),
+      link('/posts', 'ねえねえポスト', 'fas fa-envelope-open-text'),
     )
 
     const mobileMenu = h(
@@ -512,6 +565,7 @@
       link('/correlation', 'ラボメン相関図'),
       link('/tag-map', 'タグマップ'),
       link('/core-values', '大切にしていること'),
+      link('/posts', 'ねえねえポスト'),
     )
 
     function toggleMenu() {
@@ -2285,6 +2339,389 @@
   }
 
   // Container helper
+  // ---------- ねえねえポスト ----------
+  const POST_STATUS_META = {
+    new: { label: '🆕 未対応', badge: 'bg-gray-200 text-gray-800' },
+    in_progress: { label: '🔧 対応中', badge: 'bg-sky-200 text-sky-900' },
+    done: { label: '✅ 対応済み', badge: 'bg-emerald-200 text-emerald-900' },
+    wontfix: { label: '💤 見送り', badge: 'bg-amber-100 text-amber-800' },
+  }
+
+  function formatPostDate(s) {
+    if (!s) return ''
+    const d = new Date(s)
+    if (isNaN(d.getTime())) return s
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    const hh = String(d.getHours()).padStart(2, '0')
+    const mm = String(d.getMinutes()).padStart(2, '0')
+    return `${y}/${m}/${day} ${hh}:${mm}`
+  }
+
+  async function loadPosts({ force = false } = {}) {
+    if (state.posts.loaded && !force) return
+    state.posts.loading = true
+    update()
+    try {
+      const items = await api.listImprovements()
+      state.posts.items = items
+      state.posts.loaded = true
+    } catch (e) {
+      Debug.error('[Posts] load failed', e)
+      alert('投稿の読み込みに失敗しました：' + (e && e.message ? e.message : e))
+    } finally {
+      state.posts.loading = false
+      update()
+    }
+  }
+
+  async function submitPost() {
+    const c = state.posts.composer
+    const title = (c.title || '').trim()
+    if (!title) {
+      alert('タイトルを入力してください')
+      return
+    }
+    try {
+      await api.createImprovement({
+        title,
+        body: c.body || '',
+        submitter: (c.submitter || '').trim(),
+      })
+      state.posts.composer = { open: false, title: '', body: '', submitter: '' }
+      await loadPosts({ force: true })
+    } catch (e) {
+      alert('投稿に失敗しました：' + (e && e.message ? e.message : e))
+    }
+  }
+
+  async function changePostStatus(post, status) {
+    if (post.status === status) return
+    try {
+      await api.updateImprovement(post.id, { status })
+      post.status = status
+      post.updated_at = new Date().toISOString()
+      update()
+    } catch (e) {
+      alert('ステータス変更に失敗しました：' + (e && e.message ? e.message : e))
+    }
+  }
+
+  async function submitComment(post) {
+    const draft = state.posts.commentDraft[post.id] || { body: '', commenter: '' }
+    const body = (draft.body || '').trim()
+    if (!body) {
+      alert('コメントを入力してください')
+      return
+    }
+    try {
+      await api.addImprovementComment(post.id, {
+        body,
+        commenter: (draft.commenter || '').trim(),
+      })
+      state.posts.commentDraft[post.id] = { body: '', commenter: draft.commenter || '' }
+      // refresh the detail (comments) inline
+      const fresh = await api.getImprovement(post.id)
+      post.comments = fresh.comments || []
+      post.comment_count = (fresh.comments || []).length
+      post.updated_at = fresh.updated_at
+      update()
+    } catch (e) {
+      alert('コメント投稿に失敗しました：' + (e && e.message ? e.message : e))
+    }
+  }
+
+  async function togglePostExpanded(post) {
+    const id = post.id
+    if (state.posts.expanded.has(id)) {
+      state.posts.expanded.delete(id)
+      update()
+      return
+    }
+    state.posts.expanded.add(id)
+    // fetch comments lazily
+    if (!Array.isArray(post.comments)) {
+      try {
+        const fresh = await api.getImprovement(id)
+        post.comments = fresh.comments || []
+      } catch (e) {
+        Debug.error('[Posts] failed to load comments', e)
+      }
+    }
+    update()
+  }
+
+  async function deletePost(post) {
+    if (!confirm(`「${post.title}」を削除しますか？コメントも一緒に削除されます。`)) return
+    try {
+      await api.deleteImprovement(post.id)
+      state.posts.items = state.posts.items.filter((p) => p.id !== post.id)
+      state.posts.expanded.delete(post.id)
+      update()
+    } catch (e) {
+      alert('削除に失敗しました：' + (e && e.message ? e.message : e))
+    }
+  }
+
+  async function deleteComment(post, comment) {
+    if (!confirm('このコメントを削除しますか？')) return
+    try {
+      await api.deleteImprovementComment(post.id, comment.id)
+      post.comments = (post.comments || []).filter((c) => c.id !== comment.id)
+      post.comment_count = Math.max(0, (post.comment_count || 1) - 1)
+      update()
+    } catch (e) {
+      alert('コメント削除に失敗しました：' + (e && e.message ? e.message : e))
+    }
+  }
+
+  function PostStatusBadge(status) {
+    const meta = POST_STATUS_META[status] || POST_STATUS_META.new
+    return h('span', { class: `inline-block text-xs font-bold px-2 py-1 rounded-full ${meta.badge}` }, meta.label)
+  }
+
+  function PostComposer() {
+    const c = state.posts.composer
+    if (!c.open) {
+      return h(
+        'button',
+        {
+          class: 'w-full md:w-auto bg-sky-500 hover:bg-sky-600 text-white px-4 py-3 rounded-lg text-sm font-semibold shadow flex items-center justify-center gap-2',
+          onClick: () => { state.posts.composer.open = true; update() },
+        },
+        h('i', { class: 'fas fa-plus' }),
+        '新しいねえねえを投稿する',
+      )
+    }
+    return h('div', { class: 'bg-white rounded-lg shadow p-4 space-y-3 border border-sky-200' },
+      h('div', { class: 'flex items-center justify-between' },
+        h('h2', { class: 'text-lg font-bold text-gray-900 flex items-center gap-2' },
+          h('i', { class: 'fas fa-envelope-open-text text-sky-600' }),
+          'ねえねえ、これどうかな？',
+        ),
+        h('button', {
+          class: 'text-gray-500 hover:text-gray-700 text-sm',
+          onClick: () => { state.posts.composer = { open: false, title: '', body: '', submitter: '' }; update() },
+        }, '閉じる'),
+      ),
+      h('div', {},
+        h('label', { class: 'block text-xs font-bold text-gray-600 mb-1' }, 'タイトル（必須）'),
+        h('input', {
+          id: 'post-title',
+          'data-keep-focus': '1',
+          type: 'text',
+          placeholder: '例：トップにお知らせコーナーが欲しい',
+          class: 'w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300',
+          value: c.title,
+          onInput: (e) => { c.title = e.target.value },
+        }),
+      ),
+      h('div', {},
+        h('label', { class: 'block text-xs font-bold text-gray-600 mb-1' }, '内容'),
+        h('textarea', {
+          id: 'post-body',
+          'data-keep-focus': '1',
+          rows: 4,
+          placeholder: 'どんな改善があると嬉しい？背景や使い方のイメージなどがあれば一緒に書いてください。',
+          class: 'w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300',
+          value: c.body,
+          onInput: (e) => { c.body = e.target.value },
+        }),
+      ),
+      h('div', {},
+        h('label', { class: 'block text-xs font-bold text-gray-600 mb-1' }, 'お名前（空欄なら「匿名のラボメン」）'),
+        h('input', {
+          id: 'post-submitter',
+          'data-keep-focus': '1',
+          type: 'text',
+          placeholder: '匿名のラボメン',
+          class: 'w-full md:w-1/2 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300',
+          value: c.submitter,
+          onInput: (e) => { c.submitter = e.target.value },
+        }),
+      ),
+      h('div', { class: 'flex justify-end gap-2' },
+        h('button', {
+          class: 'px-4 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm',
+          onClick: () => { state.posts.composer = { open: false, title: '', body: '', submitter: '' }; update() },
+        }, 'キャンセル'),
+        h('button', {
+          class: 'px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold shadow',
+          onClick: submitPost,
+        }, '投稿する'),
+      ),
+    )
+  }
+
+  function PostCard(post) {
+    const expanded = state.posts.expanded.has(post.id)
+    const draft = state.posts.commentDraft[post.id] || { body: '', commenter: '' }
+    state.posts.commentDraft[post.id] = draft
+
+    const statusSelect = h('select', {
+      class: 'text-xs border border-gray-300 rounded px-2 py-1 bg-white',
+      onChange: (e) => changePostStatus(post, e.target.value),
+      onClick: (e) => e.stopPropagation(),
+    },
+      ...Object.entries(POST_STATUS_META).map(([key, meta]) =>
+        h('option', { value: key, selected: post.status === key ? 'selected' : null }, meta.label)
+      ),
+    )
+
+    const header = h('div', {
+      class: 'flex items-start justify-between gap-3 cursor-pointer',
+      onClick: () => togglePostExpanded(post),
+    },
+      h('div', { class: 'flex-1 min-w-0' },
+        h('div', { class: 'flex items-center gap-2 flex-wrap mb-1' },
+          PostStatusBadge(post.status),
+          h('span', { class: 'text-xs text-gray-500' }, `${formatPostDate(post.created_at)} · ${post.submitter || '匿名のラボメン'}`),
+        ),
+        h('h3', { class: 'text-base font-bold text-gray-900 break-words' }, post.title),
+      ),
+      h('div', { class: 'flex items-center gap-2 flex-shrink-0' },
+        h('span', { class: 'text-xs text-gray-600 flex items-center gap-1' },
+          h('i', { class: 'far fa-comment' }),
+          String(post.comment_count || 0),
+        ),
+        h('i', { class: `fas fa-chevron-${expanded ? 'up' : 'down'} text-gray-400` }),
+      ),
+    )
+
+    if (!expanded) {
+      return h('div', { class: 'bg-white rounded-lg shadow p-4' }, header)
+    }
+
+    const commentsList = Array.isArray(post.comments) && post.comments.length > 0
+      ? h('ul', { class: 'space-y-2' },
+          ...post.comments.map((cm) =>
+            h('li', { class: 'bg-gray-50 rounded-lg p-3' },
+              h('div', { class: 'flex items-center justify-between gap-2 mb-1' },
+                h('span', { class: 'text-xs font-bold text-gray-700' }, cm.commenter || '匿名のラボメン'),
+                h('div', { class: 'flex items-center gap-2' },
+                  h('span', { class: 'text-xs text-gray-500' }, formatPostDate(cm.created_at)),
+                  h('button', {
+                    class: 'text-xs text-red-500 hover:text-red-700',
+                    title: 'コメント削除',
+                    onClick: () => deleteComment(post, cm),
+                  }, h('i', { class: 'fas fa-trash' })),
+                ),
+              ),
+              h('p', { class: 'text-sm text-gray-800 whitespace-pre-wrap break-words' }, cm.body),
+            ),
+          ),
+        )
+      : h('p', { class: 'text-xs text-gray-500' }, 'まだコメントはありません。')
+
+    return h('div', { class: 'bg-white rounded-lg shadow p-4 space-y-3' },
+      header,
+      post.body
+        ? h('p', { class: 'text-sm text-gray-800 whitespace-pre-wrap break-words bg-sky-50 p-3 rounded-lg' }, post.body)
+        : null,
+      h('div', { class: 'flex flex-wrap items-center gap-2 text-xs' },
+        h('span', { class: 'text-gray-600' }, 'ステータス：'),
+        statusSelect,
+        h('button', {
+          class: 'ml-auto text-red-500 hover:text-red-700 text-xs',
+          onClick: () => deletePost(post),
+        }, h('i', { class: 'fas fa-trash mr-1' }), '投稿を削除'),
+      ),
+      h('div', { class: 'border-t pt-3 space-y-2' },
+        h('h4', { class: 'text-sm font-bold text-gray-700' }, `コメント（${(post.comments || []).length}）`),
+        commentsList,
+        h('div', { class: 'space-y-2 pt-2' },
+          h('textarea', {
+            id: `post-comment-body-${post.id}`,
+            'data-keep-focus': '1',
+            rows: 2,
+            placeholder: '状況・対応予定・質問などをコメントで残せます',
+            class: 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300',
+            value: draft.body,
+            onInput: (e) => { draft.body = e.target.value },
+          }),
+          h('div', { class: 'flex items-center gap-2 flex-wrap' },
+            h('input', {
+              id: `post-comment-name-${post.id}`,
+              'data-keep-focus': '1',
+              type: 'text',
+              placeholder: 'お名前（任意）',
+              class: 'flex-1 min-w-[160px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300',
+              value: draft.commenter,
+              onInput: (e) => { draft.commenter = e.target.value },
+            }),
+            h('button', {
+              class: 'px-3 py-2 rounded-lg bg-sky-500 hover:bg-sky-600 text-white text-sm font-semibold',
+              onClick: () => submitComment(post),
+            }, 'コメントする'),
+          ),
+        ),
+      ),
+    )
+  }
+
+  function PostsPage() {
+    if (!state.posts.loaded && !state.posts.loading) {
+      // kick off load (fire-and-forget)
+      loadPosts()
+    }
+    const filter = state.posts.filter || 'all'
+    const all = state.posts.items || []
+    const filtered = all.filter((p) => {
+      if (filter === 'all') return true
+      if (filter === 'open') return p.status === 'new' || p.status === 'in_progress'
+      if (filter === 'done') return p.status === 'done'
+      if (filter === 'wontfix') return p.status === 'wontfix'
+      return true
+    })
+
+    const filterBtn = (key, label) => h('button', {
+      class: 'px-3 py-1 rounded-full text-xs font-medium border ' +
+        (filter === key ? 'bg-sky-500 text-white border-sky-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'),
+      onClick: () => { state.posts.filter = key; update() },
+    }, label)
+
+    const counts = {
+      open: all.filter((p) => p.status === 'new' || p.status === 'in_progress').length,
+      done: all.filter((p) => p.status === 'done').length,
+      wontfix: all.filter((p) => p.status === 'wontfix').length,
+      all: all.length,
+    }
+
+    const header = h('div', { class: 'bg-gradient-to-r from-sky-50 to-emerald-50 rounded-lg p-4 md:p-5 border border-sky-100' },
+      h('div', { class: 'flex items-center gap-3 mb-2' },
+        h('i', { class: 'fas fa-envelope-open-text text-2xl text-sky-600' }),
+        h('h1', { class: 'text-xl md:text-2xl font-bold text-gray-900' }, 'ねえねえポスト'),
+      ),
+      h('p', { class: 'text-sm text-gray-700' },
+        'ラボメン図鑑への「こうだったらいいな」を気軽に投稿できる掲示板。',
+        h('br'),
+        '誰でも投稿・コメント・ステータス変更ができます。',
+      ),
+    )
+
+    const filters = h('div', { class: 'flex flex-wrap items-center gap-2' },
+      filterBtn('all', `すべて (${counts.all})`),
+      filterBtn('open', `対応中・未対応 (${counts.open})`),
+      filterBtn('done', `対応済み (${counts.done})`),
+      filterBtn('wontfix', `見送り (${counts.wontfix})`),
+    )
+
+    const list = state.posts.loading
+      ? LoadingSpinner()
+      : filtered.length === 0
+        ? h('div', { class: 'bg-white rounded-lg shadow p-6 text-center text-gray-500 text-sm' },
+            '該当するねえねえはまだありません。最初の一通を投稿してみよう！')
+        : h('div', { class: 'space-y-3' }, ...filtered.map(PostCard))
+
+    return container(
+      header,
+      PostComposer(),
+      filters,
+      list,
+    )
+  }
+
   function container(...children) {
     return h(
       'main',
@@ -2306,6 +2743,7 @@
       { path: /^\/correlation$/, view: CorrelationPage },
       { path: /^\/tag-map$/, view: TagMapPage },
       { path: /^\/core-values$/, view: CoreValuesPage },
+      { path: /^\/posts$/, view: PostsPage },
     ]
 
     for (const r of routes) {

@@ -76,6 +76,25 @@ const ensureSchema = async (db: D1Database) => {
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_member_tags_tag ON member_tags(tag_id)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_tags_category ON tags(category)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_core_values_member ON core_values(member_id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS improvement_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      submitter TEXT NOT NULL DEFAULT '匿名のラボメン',
+      status TEXT NOT NULL DEFAULT 'new',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS improvement_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      request_id INTEGER NOT NULL,
+      commenter TEXT NOT NULL DEFAULT '匿名のラボメン',
+      body TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (request_id) REFERENCES improvement_requests(id) ON DELETE CASCADE
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_improvement_comments_req ON improvement_comments(request_id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_improvement_requests_status ON improvement_requests(status)`),
   ])
 }
 
@@ -394,6 +413,133 @@ app.get('/api/tags', async (c) => {
   }
   const res = await db.prepare(stmt).bind(...bind).all()
   return c.json(res.results || [])
+})
+
+// ---------- API: Improvement Requests (ねえねえポスト) ----------
+
+const ALLOWED_STATUSES = new Set(['new', 'in_progress', 'done', 'wontfix'])
+const MAX_TEXT_LEN = 4000
+const MAX_NAME_LEN = 80
+
+const clamp = (s: any, max: number) => {
+  if (typeof s !== 'string') return ''
+  const t = s.trim()
+  return t.length > max ? t.slice(0, max) : t
+}
+
+// GET /api/improvements - list all requests with comment counts
+app.get('/api/improvements', async (c) => {
+  const db = c.env.DB
+  const res = await db.prepare(
+    `SELECT r.id, r.title, r.body, r.submitter, r.status, r.created_at, r.updated_at,
+            (SELECT COUNT(*) FROM improvement_comments c WHERE c.request_id = r.id) as comment_count
+     FROM improvement_requests r
+     ORDER BY
+       CASE r.status WHEN 'new' THEN 0 WHEN 'in_progress' THEN 1 WHEN 'done' THEN 2 ELSE 3 END,
+       r.updated_at DESC`
+  ).all()
+  return c.json(res.results || [])
+})
+
+// GET /api/improvements/:id - detail with comments
+app.get('/api/improvements/:id', async (c) => {
+  const db = c.env.DB
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id)) return c.json({ error: 'invalid id' }, 400)
+  const req = await db.prepare(
+    `SELECT id, title, body, submitter, status, created_at, updated_at FROM improvement_requests WHERE id = ?`
+  ).bind(id).first<any>()
+  if (!req) return c.json({ error: 'not found' }, 404)
+  const commentsRes = await db.prepare(
+    `SELECT id, request_id, commenter, body, created_at FROM improvement_comments WHERE request_id = ? ORDER BY created_at ASC`
+  ).bind(id).all()
+  return c.json({ ...req, comments: commentsRes.results || [] })
+})
+
+// POST /api/improvements - create
+app.post('/api/improvements', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.json().catch(() => ({}))
+  const title = clamp(body.title, 200)
+  const text = clamp(body.body, MAX_TEXT_LEN)
+  const submitter = clamp(body.submitter, MAX_NAME_LEN) || '匿名のラボメン'
+  if (!title) return c.json({ error: 'title is required' }, 400)
+  const now = new Date().toISOString()
+  const res = await db.prepare(
+    `INSERT INTO improvement_requests (title, body, submitter, status, created_at, updated_at) VALUES (?, ?, ?, 'new', ?, ?)`
+  ).bind(title, text, submitter, now, now).run()
+  const id = (res.meta as any)?.last_row_id
+  return c.json({ ok: true, id })
+})
+
+// PATCH /api/improvements/:id - update status (and optionally title/body)
+app.patch('/api/improvements/:id', async (c) => {
+  const db = c.env.DB
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id)) return c.json({ error: 'invalid id' }, 400)
+  const body = await c.req.json().catch(() => ({}))
+  const exists = await db.prepare(`SELECT id FROM improvement_requests WHERE id = ?`).bind(id).first<any>()
+  if (!exists) return c.json({ error: 'not found' }, 404)
+
+  const fields: string[] = []
+  const binds: any[] = []
+  if (typeof body.status === 'string') {
+    if (!ALLOWED_STATUSES.has(body.status)) return c.json({ error: 'invalid status' }, 400)
+    fields.push('status = ?'); binds.push(body.status)
+  }
+  if (typeof body.title === 'string') {
+    const t = clamp(body.title, 200)
+    if (!t) return c.json({ error: 'title cannot be empty' }, 400)
+    fields.push('title = ?'); binds.push(t)
+  }
+  if (typeof body.body === 'string') {
+    fields.push('body = ?'); binds.push(clamp(body.body, MAX_TEXT_LEN))
+  }
+  if (fields.length === 0) return c.json({ error: 'no fields to update' }, 400)
+  fields.push('updated_at = ?'); binds.push(new Date().toISOString())
+  binds.push(id)
+  await db.prepare(`UPDATE improvement_requests SET ${fields.join(', ')} WHERE id = ?`).bind(...binds).run()
+  return c.json({ ok: true })
+})
+
+// DELETE /api/improvements/:id - delete request (and cascade comments)
+app.delete('/api/improvements/:id', async (c) => {
+  const db = c.env.DB
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id)) return c.json({ error: 'invalid id' }, 400)
+  await db.batch([
+    db.prepare(`DELETE FROM improvement_comments WHERE request_id = ?`).bind(id),
+    db.prepare(`DELETE FROM improvement_requests WHERE id = ?`).bind(id),
+  ])
+  return c.json({ ok: true })
+})
+
+// POST /api/improvements/:id/comments - add a comment
+app.post('/api/improvements/:id/comments', async (c) => {
+  const db = c.env.DB
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id)) return c.json({ error: 'invalid id' }, 400)
+  const body = await c.req.json().catch(() => ({}))
+  const text = clamp(body.body, MAX_TEXT_LEN)
+  const commenter = clamp(body.commenter, MAX_NAME_LEN) || '匿名のラボメン'
+  if (!text) return c.json({ error: 'body is required' }, 400)
+  const exists = await db.prepare(`SELECT id FROM improvement_requests WHERE id = ?`).bind(id).first<any>()
+  if (!exists) return c.json({ error: 'not found' }, 404)
+  const now = new Date().toISOString()
+  await db.prepare(
+    `INSERT INTO improvement_comments (request_id, commenter, body, created_at) VALUES (?, ?, ?, ?)`
+  ).bind(id, commenter, text, now).run()
+  await db.prepare(`UPDATE improvement_requests SET updated_at = ? WHERE id = ?`).bind(now, id).run()
+  return c.json({ ok: true })
+})
+
+// DELETE /api/improvements/:reqId/comments/:cid - delete a comment
+app.delete('/api/improvements/:reqId/comments/:cid', async (c) => {
+  const db = c.env.DB
+  const cid = Number(c.req.param('cid'))
+  if (!Number.isFinite(cid)) return c.json({ error: 'invalid id' }, 400)
+  await db.prepare(`DELETE FROM improvement_comments WHERE id = ?`).bind(cid).run()
+  return c.json({ ok: true })
 })
 
 // ---------- SPA entry ----------
