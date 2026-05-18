@@ -33,10 +33,13 @@
       loading: false,
       items: [],
       filter: 'all',
+      sort: 'recommended', // 'recommended' | 'likes' | 'recent'
       expanded: new Set(),
       composer: { open: false, title: '', body: '', submitter: '' },
       commentDraft: {},
       editing: { id: null, title: '', body: '', submitter: '' },
+      likedIds: new Set(),
+      likeBusy: new Set(),
     },
   }
 
@@ -225,6 +228,16 @@
     async deleteImprovementComment(reqId, cid) {
       return this._json(
         await fetch(`/api/improvements/${encodeURIComponent(reqId)}/comments/${encodeURIComponent(cid)}`, { method: 'DELETE' })
+      )
+    },
+    async likeImprovement(id) {
+      return this._json(
+        await fetch(`/api/improvements/${encodeURIComponent(id)}/like`, { method: 'POST' })
+      )
+    },
+    async unlikeImprovement(id) {
+      return this._json(
+        await fetch(`/api/improvements/${encodeURIComponent(id)}/like`, { method: 'DELETE' })
       )
     },
     async refreshAll() {
@@ -2360,9 +2373,66 @@
     return `${y}/${m}/${day} ${hh}:${mm}`
   }
 
+  const POSTS_LIKED_KEY = 'posts.likedIds.v1'
+  function loadLikedIds() {
+    try {
+      const raw = localStorage.getItem(POSTS_LIKED_KEY)
+      if (!raw) return new Set()
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) return new Set(arr.map((x) => Number(x)).filter((x) => Number.isFinite(x)))
+    } catch (_) {}
+    return new Set()
+  }
+  function saveLikedIds(set) {
+    try {
+      localStorage.setItem(POSTS_LIKED_KEY, JSON.stringify(Array.from(set)))
+    } catch (_) {}
+  }
+
+  async function toggleLikePost(post) {
+    const id = post.id
+    if (state.posts.likeBusy.has(id)) return
+    state.posts.likeBusy.add(id)
+    const liked = state.posts.likedIds.has(id)
+    // optimistic update
+    if (liked) {
+      state.posts.likedIds.delete(id)
+      post.likes = Math.max(0, (post.likes || 0) - 1)
+    } else {
+      state.posts.likedIds.add(id)
+      post.likes = (post.likes || 0) + 1
+    }
+    saveLikedIds(state.posts.likedIds)
+    update()
+    try {
+      const res = liked ? await api.unlikeImprovement(id) : await api.likeImprovement(id)
+      if (typeof res?.likes === 'number') {
+        post.likes = res.likes
+      }
+    } catch (e) {
+      // revert on failure
+      if (liked) {
+        state.posts.likedIds.add(id)
+        post.likes = (post.likes || 0) + 1
+      } else {
+        state.posts.likedIds.delete(id)
+        post.likes = Math.max(0, (post.likes || 0) - 1)
+      }
+      saveLikedIds(state.posts.likedIds)
+      alert('いいねの保存に失敗しました：' + (e && e.message ? e.message : e))
+    } finally {
+      state.posts.likeBusy.delete(id)
+      update()
+    }
+  }
+
   async function loadPosts({ force = false } = {}) {
     if (state.posts.loaded && !force) return
     state.posts.loading = true
+    // first load: pull likedIds from localStorage
+    if (!state.posts.loaded) {
+      state.posts.likedIds = loadLikedIds()
+    }
     update()
     try {
       const items = await api.listImprovements()
@@ -2616,6 +2686,19 @@
       ),
     )
 
+    const liked = state.posts.likedIds.has(post.id)
+    const likeBtn = h('button', {
+      class: 'flex items-center gap-1 text-xs px-2 py-1 rounded-full border ' +
+        (liked
+          ? 'bg-pink-50 text-pink-600 border-pink-200 hover:bg-pink-100'
+          : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'),
+      title: liked ? 'いいねを取り消す' : 'いいねする',
+      onClick: (ev) => { ev.stopPropagation(); toggleLikePost(post) },
+    },
+      h('i', { class: (liked ? 'fas' : 'far') + ' fa-heart' }),
+      h('span', { class: 'font-semibold' }, String(post.likes || 0)),
+    )
+
     const header = h('div', {
       class: 'flex items-start justify-between gap-3 cursor-pointer',
       onClick: () => togglePostExpanded(post),
@@ -2628,6 +2711,7 @@
         h('h3', { class: 'text-base font-bold text-gray-900 break-words' }, post.title),
       ),
       h('div', { class: 'flex items-center gap-2 flex-shrink-0' },
+        likeBtn,
         h('span', { class: 'text-xs text-gray-600 flex items-center gap-1' },
           h('i', { class: 'far fa-comment' }),
           String(post.comment_count || 0),
@@ -2776,6 +2860,7 @@
       loadPosts()
     }
     const filter = state.posts.filter || 'all'
+    const sort = state.posts.sort || 'recommended'
     const all = state.posts.items || []
     const filtered = all.filter((p) => {
       if (filter === 'all') return true
@@ -2783,6 +2868,21 @@
       if (filter === 'done') return p.status === 'done'
       if (filter === 'wontfix') return p.status === 'wontfix'
       return true
+    })
+    const statusRank = { new: 0, in_progress: 1, done: 2, wontfix: 3 }
+    const sorted = filtered.slice().sort((a, b) => {
+      if (sort === 'likes') {
+        const d = (b.likes || 0) - (a.likes || 0)
+        if (d !== 0) return d
+        return (b.updated_at || '').localeCompare(a.updated_at || '')
+      }
+      if (sort === 'recent') {
+        return (b.created_at || '').localeCompare(a.created_at || '')
+      }
+      // recommended (default): status priority then updated_at desc
+      const d = (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9)
+      if (d !== 0) return d
+      return (b.updated_at || '').localeCompare(a.updated_at || '')
     })
 
     const filterBtn = (key, label) => h('button', {
@@ -2817,17 +2917,33 @@
       filterBtn('wontfix', `見送り (${counts.wontfix})`),
     )
 
+    const sortSelect = h('div', { class: 'flex items-center gap-2 text-xs text-gray-600' },
+      h('label', { for: 'posts-sort' }, '並び順：'),
+      h('select', {
+        id: 'posts-sort',
+        class: 'border border-gray-300 rounded px-2 py-1 bg-white text-xs',
+        onChange: (e) => { state.posts.sort = e.target.value; update() },
+      },
+        h('option', { value: 'recommended', selected: sort === 'recommended' ? 'selected' : null }, 'おすすめ（未対応 → 対応中 → 完了）'),
+        h('option', { value: 'likes', selected: sort === 'likes' ? 'selected' : null }, 'いいね順'),
+        h('option', { value: 'recent', selected: sort === 'recent' ? 'selected' : null }, '新着順'),
+      ),
+    )
+
     const list = state.posts.loading
       ? LoadingSpinner()
-      : filtered.length === 0
+      : sorted.length === 0
         ? h('div', { class: 'bg-white rounded-lg shadow p-6 text-center text-gray-500 text-sm' },
             '該当するねえねえはまだありません。最初の一通を投稿してみよう！')
-        : h('div', { class: 'space-y-3' }, ...filtered.map(PostCard))
+        : h('div', { class: 'space-y-3' }, ...sorted.map(PostCard))
 
     return container(
       header,
       PostComposer(),
-      filters,
+      h('div', { class: 'flex flex-col md:flex-row md:items-center md:justify-between gap-2' },
+        filters,
+        sortSelect,
+      ),
       list,
     )
   }

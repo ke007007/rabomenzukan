@@ -39,6 +39,8 @@ const ensureSchema = async (db: D1Database) => {
   for (const col of ['intro_image1 TEXT', 'intro_image2 TEXT', 'youtube_url1 TEXT', 'youtube_url2 TEXT', 'profile_pdf_url TEXT', 'profile_pdf_thumb_url TEXT']) {
     try { await db.prepare(`ALTER TABLE members ADD COLUMN ${col}`).run() } catch (_) {}
   }
+  // improvement_requests: add likes counter if absent
+  try { await db.prepare(`ALTER TABLE improvement_requests ADD COLUMN likes INTEGER NOT NULL DEFAULT 0`).run() } catch (_) {}
   // Create tables and indexes if they do not exist (idempotent)
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS members (
@@ -82,6 +84,7 @@ const ensureSchema = async (db: D1Database) => {
       body TEXT NOT NULL DEFAULT '',
       submitter TEXT NOT NULL DEFAULT '匿名のラボメン',
       status TEXT NOT NULL DEFAULT 'new',
+      likes INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     )`),
@@ -431,7 +434,7 @@ const clamp = (s: any, max: number) => {
 app.get('/api/improvements', async (c) => {
   const db = c.env.DB
   const res = await db.prepare(
-    `SELECT r.id, r.title, r.body, r.submitter, r.status, r.created_at, r.updated_at,
+    `SELECT r.id, r.title, r.body, r.submitter, r.status, r.likes, r.created_at, r.updated_at,
             (SELECT COUNT(*) FROM improvement_comments c WHERE c.request_id = r.id) as comment_count
      FROM improvement_requests r
      ORDER BY
@@ -447,13 +450,37 @@ app.get('/api/improvements/:id', async (c) => {
   const id = Number(c.req.param('id'))
   if (!Number.isFinite(id)) return c.json({ error: 'invalid id' }, 400)
   const req = await db.prepare(
-    `SELECT id, title, body, submitter, status, created_at, updated_at FROM improvement_requests WHERE id = ?`
+    `SELECT id, title, body, submitter, status, likes, created_at, updated_at FROM improvement_requests WHERE id = ?`
   ).bind(id).first<any>()
   if (!req) return c.json({ error: 'not found' }, 404)
   const commentsRes = await db.prepare(
     `SELECT id, request_id, commenter, body, created_at FROM improvement_comments WHERE request_id = ? ORDER BY created_at ASC`
   ).bind(id).all()
   return c.json({ ...req, comments: commentsRes.results || [] })
+})
+
+// POST /api/improvements/:id/like - increment like counter
+app.post('/api/improvements/:id/like', async (c) => {
+  const db = c.env.DB
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id)) return c.json({ error: 'invalid id' }, 400)
+  const exists = await db.prepare(`SELECT id FROM improvement_requests WHERE id = ?`).bind(id).first<any>()
+  if (!exists) return c.json({ error: 'not found' }, 404)
+  await db.prepare(`UPDATE improvement_requests SET likes = likes + 1 WHERE id = ?`).bind(id).run()
+  const row = await db.prepare(`SELECT likes FROM improvement_requests WHERE id = ?`).bind(id).first<any>()
+  return c.json({ ok: true, likes: row?.likes ?? 0 })
+})
+
+// DELETE /api/improvements/:id/like - decrement like counter (floor at 0)
+app.delete('/api/improvements/:id/like', async (c) => {
+  const db = c.env.DB
+  const id = Number(c.req.param('id'))
+  if (!Number.isFinite(id)) return c.json({ error: 'invalid id' }, 400)
+  const exists = await db.prepare(`SELECT id FROM improvement_requests WHERE id = ?`).bind(id).first<any>()
+  if (!exists) return c.json({ error: 'not found' }, 404)
+  await db.prepare(`UPDATE improvement_requests SET likes = MAX(likes - 1, 0) WHERE id = ?`).bind(id).run()
+  const row = await db.prepare(`SELECT likes FROM improvement_requests WHERE id = ?`).bind(id).first<any>()
+  return c.json({ ok: true, likes: row?.likes ?? 0 })
 })
 
 // POST /api/improvements - create
